@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "goofish-cli"
+version = "0.1.0"
+description = "闲鱼 CLI — 支持 MCP，未来支持 Claude Skills。为 AI Agent 提供闲鱼自动化基础能力。"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.11"
+authors = [{ name = "fancy", email = "saral96@mail.com" }]
+keywords = ["xianyu", "goofish", "cli", "mcp", "ai-agent", "automation"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: Apache Software License",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Internet :: WWW/HTTP",
+]
+dependencies = [
+  "requests>=2.31",
+  "loguru>=0.7",
+  "typer>=0.12",
+  "pydantic>=2.6",
+  "pyexecjs>=1.5",
+  "rich>=13.7",
+  "pyyaml>=6.0",
+  "tenacity>=8.2",
+  "mcp>=1.2",
+  "websockets>=13",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "ruff>=0.4",
+  "mypy>=1.10",
+]
+
+[project.scripts]
+goofish = "goofish_cli.cli:app"
+goofish-mcp = "goofish_cli.mcp_server:main"
+
+[project.urls]
+Homepage = "https://github.com/fancyboi999/goofish-cli"
+Repository = "https://github.com/fancyboi999/goofish-cli"
+Issues = "https://github.com/fancyboi999/goofish-cli/issues"
+Changelog = "https://github.com/fancyboi999/goofish-cli/blob/main/CHANGELOG.md"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/goofish_cli"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "UP", "B", "SIM"]
+ignore = ["E501"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"

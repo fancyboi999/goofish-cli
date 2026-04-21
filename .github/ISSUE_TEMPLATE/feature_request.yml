@@ -1,0 +1,22 @@
+name: Feature request
+description: 提个新功能 / 新命令
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决什么问题
+      placeholder: 现在没法 xxx；我在 yyy 场景下会被卡住
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 想要的接口 / 命令
+      placeholder: |
+        `goofish item list --status selling`
+        返回：[{itemId, title, price, updatedAt}]
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 已考虑的替代方案

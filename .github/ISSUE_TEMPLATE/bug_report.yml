@@ -1,0 +1,54 @@
+name: Bug report
+description: 报告一个 bug
+labels: [bug]
+body:
+  - type: input
+    id: version
+    attributes:
+      label: goofish-cli 版本
+      placeholder: "运行 `goofish version` 获取"
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options: [macOS, Linux, Windows, WSL, 其他]
+    validations:
+      required: true
+  - type: input
+    id: py
+    attributes:
+      label: Python 版本
+      placeholder: "3.11 / 3.12"
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: 复现步骤
+      description: 请给出最小复现命令（**不要粘贴 cookie**）
+      placeholder: |
+        1. `goofish auth login ...`
+        2. `goofish item get 12345`
+        3. 报错：...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: 期望行为
+  - type: textarea
+    id: actual
+    attributes:
+      label: 实际行为（含报错栈）
+      render: shell
+    validations:
+      required: true
+  - type: checkboxes
+    id: sensitive
+    attributes:
+      label: 敏感信息检查
+      options:
+        - label: 我已经从日志/示例中去除了 cookie、token、_m_h5_tk 等敏感信息
+          required: true

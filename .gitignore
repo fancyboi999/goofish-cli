@@ -1,0 +1,49 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+*.egg
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual env
+.venv/
+venv/
+env/
+
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+cookies.json
+*cookies*.json
+credentials.json
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Logs / runtime
+*.log
+logs/
+*.db
+*.sqlite
+*.sqlite3
+
+# OS
+Thumbs.db
+
+# Scratch
+/tmp_*
+*.tmp.json
+/frames.jsonl
+/ws_diag*.jsonl
