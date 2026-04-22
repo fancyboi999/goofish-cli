@@ -1,5 +1,7 @@
 from goofish_cli.core.errors import (
     AuthRequiredError,
+    BlockedError,
+    EmptyResultError,
     GoofishError,
     NotFoundError,
     RateLimitedError,
@@ -12,7 +14,9 @@ from goofish_cli.core.strategy import Strategy
 
 __all__ = [
     "AuthRequiredError",
+    "BlockedError",
     "Command",
+    "EmptyResultError",
     "GoofishError",
     "NotFoundError",
     "RateLimitedError",

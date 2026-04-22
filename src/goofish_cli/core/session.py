@@ -1,4 +1,12 @@
-"""cookie 加载 + requests.Session 管理 + token 提取。"""
+"""cookie 加载 + requests.Session 管理 + token 提取。
+
+登录态解析顺序（从低认知负荷到高）：
+1. cookies.json 存在且有效 → 直接用
+2. cookies.json 不存在 → 自动从本机 Chrome 抓一次（零感知 bootstrap）
+3. Chrome 也抓不到 → 抛 AuthRequiredError，附带明确的手动兜底提示
+
+环境变量 GOOFISH_NO_CHROME_BOOTSTRAP=1 可关闭自动抓 Chrome（CI 场景）。
+"""
 from __future__ import annotations
 
 import json
@@ -7,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import requests
+from loguru import logger
 
 from goofish_cli.core.errors import AuthRequiredError
 from goofish_cli.core.sign import generate_device_id
@@ -32,14 +41,13 @@ class Session:
         path = Path(os.path.expanduser(
             cookie_path or os.environ.get("GOOFISH_COOKIES_PATH") or DEFAULT_COOKIE_PATH
         ))
-        if not path.exists():
-            raise AuthRequiredError(
-                f"cookie 文件不存在：{path}。请先 `goofish auth login --from <path>` 导入。"
-            )
-        cookies = _load_cookies(path)
+
+        cookies = _load_or_bootstrap_cookies(path)
+
         if "unb" not in cookies or "_m_h5_tk" not in cookies:
             raise AuthRequiredError(
-                f"cookie 缺失 unb / _m_h5_tk，检查 {path} 是否完整（建议从 goofish.com 登录后再导一次）"
+                f"cookie 缺失 unb / _m_h5_tk，检查 {path} 是否完整（建议先在 Chrome 登录 "
+                f"https://www.goofish.com 后再试 `goofish auth login`）"
             )
         http = requests.Session()
         http.cookies.update(cookies)
@@ -54,6 +62,53 @@ class Session:
     def h5_token(self) -> str:
         raw = self.http.cookies.get("_m_h5_tk", "")
         return raw.split("_")[0] if raw else ""
+
+
+def _load_or_bootstrap_cookies(path: Path) -> dict[str, str]:
+    """先查本地 cookies.json；没有就从 Chrome 自动抓一次写入。"""
+    if path.exists():
+        return _load_cookies(path)
+
+    # 本地不存在，走自动 bootstrap（除非用户显式关闭）
+    if os.environ.get("GOOFISH_NO_CHROME_BOOTSTRAP") == "1":
+        raise AuthRequiredError(
+            f"cookie 文件不存在：{path}。\n"
+            f"请执行 `goofish auth login` 自动从 Chrome 导入，"
+            f"或 `goofish auth login --from <path>` 手动指定。"
+        )
+
+    try:
+        browser, cookies = _bootstrap_from_browser()
+    except Exception as e:  # noqa: BLE001 — 浏览器抽取失败就走友好兜底
+        logger.debug(f"浏览器自动导入失败：{e}")
+        raise AuthRequiredError(
+            f"cookie 文件不存在：{path}。\n"
+            f"自动从浏览器导入也失败了（{e}）。\n"
+            f"请在 Chrome / Edge / Brave 等任一浏览器里登录 https://www.goofish.com 后重试，"
+            f"或手动导出 JSON：`goofish auth login <path>`。"
+        ) from e
+
+    # bootstrap 成功 → 落盘一份，下次直接走缓存
+    write_cookies_json(path, cookies)
+    logger.info(f"已从 {browser} 自动导入登录态 → {path}")
+    return cookies
+
+
+def _bootstrap_from_browser() -> tuple[str, dict[str, str]]:
+    """单独封装一层，方便测试时 monkeypatch。"""
+    from goofish_cli.core.browser_cookie import extract_goofish_cookies
+    return extract_goofish_cookies(browser="auto")
+
+
+def write_cookies_json(path: Path, cookies: dict[str, str]) -> None:
+    """把 cookies dict 以 Chrome 扩展风格 JSON 数组落盘。供 auth login 复用。"""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(
+        [{"name": k, "value": v} for k, v in cookies.items()],
+        ensure_ascii=False,
+        indent=2,
+    ))
+    path.chmod(0o600)
 
 
 def _load_or_mint_device_id(unb: str) -> str:
