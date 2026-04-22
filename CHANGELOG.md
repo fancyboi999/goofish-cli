@@ -6,6 +6,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+- `goofish message list-chats`：拉取会话列表（对应网页左栏），返回 `session_id`、对方昵称、
+  未读数、最后一条消息摘要、`sessionType`（1=真人 / 3=系统 / 6=互动 / 23=官方通知）。
+  AI Agent 可基于 `sessionType=1 and unread>0` 一键过滤"待回复真人会话"。
+- 接口：`mtop.taobao.idlemessage.pc.session.sync` v3.0，入参 `fetchNum`。
+
 ## [0.1.0] - 2026-04-21
 
 ### Added

@@ -28,7 +28,7 @@
 
 ## ✨ 核心特性
 
-- 🔐 **12 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发
+- 🔐 **13 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发 + 会话列表
 - 📡 **真·实时 IM**：WebSocket 长连 + 自动重连 + **三类事件分类输出**
   - `event=message`（收到消息）· `event=read`（已读回执）· `event=new_msg`（轻量通知）
 - 🛡 **内置风控护栏**：令牌桶限流（1 写/分钟）+ RGV587 自动熔断
@@ -79,6 +79,7 @@ $ goofish list-commands --format table
 | `media upload` | 上传图片到闲鱼 CDN | ✅ |
 | `category recommend` | AI 识别商品类目 | ❌ |
 | `location default` | 获取默认发布地址 | ❌ |
+| `message list-chats` | 拉取会话列表（左栏，含未读数 / 最后消息） | ❌ |
 | `message history` | 拉取会话历史消息 | ❌ |
 | `message send` | 发送文本/图片 | ✅ |
 | `message watch` | 常驻 IM 长连（JSONL 输出） | ❌ |
@@ -194,7 +195,7 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 | WebSocket 自动重连 | 断线自退避重连，长跑无感知 |
 | 已读回执 / typing / 新消息通知分类 | `/s/sync` 元事件结构化为三类 JSONL |
 | 全局限流 + 风控熔断 | 令牌桶 1 写/分钟 + RGV587 自动熔断 |
-| 单元测试 | 29 个，ruff 零告警 |
+| 单元测试 | 33 个，ruff 零告警 |
 | 包分发 | `pip install goofish-cli` / `uvx goofish-mcp` |
 
 ---
@@ -202,6 +203,7 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 ## 🗺 Roadmap
 
 - [x] v0.1：12 个命令 + MCP + IM 三类事件
+- [x] v0.2：`goofish message list-chats`（会话列表 + sessionType 分类：1 真人 / 3 系统 / 6 互动 / 23 通知）
 - [ ] v0.2：`goofish message create-chat`（主动与陌生用户建会话）
 - [ ] v0.2：Claude Skills 包装（`skills/` 目录）
 - [ ] v0.3：`goofish order`（订单状态查询 / 发货）
@@ -217,7 +219,7 @@ cd goofish-cli
 uv venv --python 3.11
 uv pip install -e ".[dev]"
 
-uv run pytest                # 29 测全绿
+uv run pytest                # 33 测全绿
 uv run ruff check src tests  # 零告警
 ```
 
