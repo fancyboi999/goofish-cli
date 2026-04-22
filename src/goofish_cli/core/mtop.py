@@ -74,8 +74,10 @@ def call(
 ) -> dict[str, Any]:
     """调用 mtop 接口。返回原始 JSON。失败抛 GoofishError 子类。
 
-    `_auto_refresh=True`：遇到 `FAIL_SYS_TOKEN_EXOIRED` 时自动用 Playwright goto
-    闲鱼首页刷一次 cookie 再重试一次。递归调用时用 False 避免死循环。
+    `_auto_refresh=True`：遇到 token 层（`FAIL_SYS_TOKEN_EXOIRED`）或 session 层
+    （`FAIL_SYS_SESSION_EXPIRED`）失效时，自动用 Playwright 访问闲鱼首页 + 点
+    passport 弹窗的"快速进入"免密登录刷新 cookie 后重试一次。递归调用时置 False
+    避免死循环。
     """
     url = f"{MTOP_HOST}/h5/{api}/{version}/"
     t_ms = str(int(time.time() * 1000))
@@ -114,14 +116,16 @@ def call(
     try:
         _classify_error(raw, api)
     except AuthRequiredError as e:
-        # 只对 h5_tk 层的过期做自动刷新 —— session 级失效（FAIL_SYS_SESSION_EXPIRED
-        # / ILLEGAL_ACCESS）通常意味着 unb/cookie2 也得换，不是刷 _m_h5_tk 能救的。
-        if not (_auto_refresh and _is_token_expired_error(e)):
+        # token 层（_m_h5_tk 过期）和 session 层（cookie2/sgcookie 失效）都可以通过
+        # Playwright goto 闲鱼首页 → 点 passport 弹窗的"快速进入"免密记忆登录恢复。
+        # v0.2.3 起统一由 refresh_cookies_via_browser 处理；`ILLEGAL_ACCESS` 是风控
+        # 层面问题，刷 cookie 也救不了，不在可恢复列表内。
+        if not (_auto_refresh and _is_recoverable_auth_error(e)):
             raise
         from goofish_cli.core.refresh import is_enabled, refresh_cookies_via_browser
         if not is_enabled():
             raise
-        logger.info(f"[{api}] 检测到 _m_h5_tk 过期，尝试 Playwright goto 刷新 cookie…")
+        logger.info(f"[{api}] 检测到登录态失效，尝试 Playwright 免密登录刷新 cookie…")
         if not refresh_cookies_via_browser(session):
             raise
         # 刷新成功：重试一次，禁用递归自动刷新
@@ -134,9 +138,20 @@ def call(
     return raw
 
 
-def _is_token_expired_error(e: AuthRequiredError) -> bool:
+def _is_recoverable_auth_error(e: AuthRequiredError) -> bool:
+    """可通过 Playwright 自动刷新恢复的登录态失效错误码。
+
+    - TOKEN_EXOIRED / TOKEN_EMPTY / 令牌过期 → h5_tk 层，goto 首页即续
+    - SESSION_EXPIRED → session 层，点'快速进入'免密记忆登录恢复
+    - ILLEGAL_ACCESS → 风控层，不在此列（救不了）
+    """
     msg = str(e)
-    return any(kw in msg for kw in ("FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EMPTY", "令牌过期"))
+    return any(kw in msg for kw in (
+        "FAIL_SYS_TOKEN_EXOIRED",
+        "FAIL_SYS_TOKEN_EMPTY",
+        "FAIL_SYS_SESSION_EXPIRED",
+        "令牌过期",
+    ))
 
 
 def _classify_error(raw: dict[str, Any], api: str) -> None:

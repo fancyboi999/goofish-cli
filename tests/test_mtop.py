@@ -38,3 +38,22 @@ def test_classify_not_found():
 
     with pytest.raises(NotFoundError):
         _classify_error({"ret": ["FAIL_BIZ_ITEM_NOT_FOUND::商品不存在"]}, "mtop.test")
+
+
+@pytest.mark.parametrize(
+    "msg,expected",
+    [
+        ("[api] 登录态失效：FAIL_SYS_TOKEN_EXOIRED::令牌过期", True),
+        ("[api] 登录态失效：FAIL_SYS_TOKEN_EMPTY::令牌为空", True),
+        ("[api] 登录态失效：FAIL_SYS_SESSION_EXPIRED::Session过期", True),
+        ("[api] 登录态失效：令牌过期", True),
+        # 风控/权限类刷 cookie 救不了，不触发自动刷新
+        ("[api] 登录态失效：FAIL_SYS_ILLEGAL_ACCESS::非法访问", False),
+        ("[api] 未找到：FAIL_BIZ_ITEM_NOT_FOUND", False),
+    ],
+)
+def test_is_recoverable_auth_error(msg, expected):
+    from goofish_cli.core.errors import AuthRequiredError
+    from goofish_cli.core.mtop import _is_recoverable_auth_error
+
+    assert _is_recoverable_auth_error(AuthRequiredError(msg)) is expected
