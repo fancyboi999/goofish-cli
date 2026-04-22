@@ -1,0 +1,59 @@
+{
+  "$schema": "https://claude.ai/schemas/plugin-marketplace.json",
+  "name": "goofish-cli-skills",
+  "displayName": "goofish-cli Skills",
+  "description": "闲鱼（goofish.com）自动化运营的 Claude Skills 套件。配合 goofish-cli MCP server 使用，让 Agent 在发布商品 / 回复买家 / 风控预检 / 店铺诊断这些场景里上手即会。",
+  "version": "0.3.0",
+  "author": {
+    "name": "fancy",
+    "url": "https://github.com/fancyboi999"
+  },
+  "homepage": "https://github.com/fancyboi999/goofish-cli",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/fancyboi999/goofish-cli.git"
+  },
+  "license": "Apache-2.0",
+  "requires": {
+    "mcp": ["goofish"]
+  },
+  "plugins": [
+    {
+      "name": "goofish-overview",
+      "source": "./skills/goofish-overview",
+      "description": "闲鱼自动化总入口：介绍工具定位、账号模型、15 个 MCP 工具速查、风控底线，并指向其它专项 skill。"
+    },
+    {
+      "name": "goofish-risk-guard",
+      "source": "./skills/goofish-risk-guard",
+      "description": "发布 / 发消息 / 风控恢复三道闸门。内置违禁词表、外联词表、x5sec 恢复指引。被其它 skill 频繁引用。"
+    },
+    {
+      "name": "goofish-publish-item",
+      "source": "./skills/goofish-publish-item",
+      "description": "从描述 / 图片到商品发布的闭环：类目识别 → 标题 5 段式生成 → 风控扫描 → 批量传图 → 用户确认 → 调 item_publish。"
+    },
+    {
+      "name": "goofish-reply-buyer",
+      "source": "./skills/goofish-reply-buyer",
+      "description": "买家消息闭环：拉未读 → 意图分类 → 议价阶梯策略 → 风控扫描 → 用户确认发送。不托管发送权。"
+    },
+    {
+      "name": "goofish-shop-diagnosis",
+      "source": "./skills/goofish-shop-diagnosis",
+      "description": "限流 / 降权 / 曝光掉的归因诊断。search_items 买家视角搜 + item_view 历史对比 → 给嫌疑排序和修复清单。"
+    }
+  ],
+  "install": {
+    "preferredMethod": "cli",
+    "cli": {
+      "command": "uvx",
+      "args": ["--from", "goofish-cli", "goofish", "skills", "install"],
+      "description": "运行 `uvx --from goofish-cli goofish skills install` 把所有 skill 复制到 ~/.claude/skills/。"
+    },
+    "manual": {
+      "description": "也可以直接 clone 仓库并把 skills/ 下的任一目录拷到 ~/.claude/skills/。"
+    }
+  },
+  "tags": ["xianyu", "goofish", "ecommerce", "automation", "mcp", "chinese"]
+}
