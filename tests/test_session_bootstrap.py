@@ -100,14 +100,32 @@ def test_load_skips_bootstrap_when_env_disabled(fake_cookies_path, monkeypatch):
 
 def test_load_raises_when_bootstrapped_cookies_missing_keys(fake_cookies_path, monkeypatch):
     """bootstrap 回来的 cookie 不带 unb/_m_h5_tk → 依旧报错，
-    避免把半残 cookie 落盘造成后续命令反复失败。"""
+    且坚决不落盘——避免半残 cookie 污染后续每次 Session.load。"""
     monkeypatch.setattr(
         session_mod, "_bootstrap_from_browser",
         lambda: ("edge", {"tracknick": "nick_only"}),
     )
 
+    # 前置：确保出发前文件不存在（fixture 就是这样，但显式断言更稳）
+    assert not fake_cookies_path.exists()
+
     with pytest.raises(AuthRequiredError):
         session_mod.Session.load()
+
+    # 关键：失败不落盘。锁住回归——以前实现是先写再校验，半残 cookie 会污染磁盘。
+    assert not fake_cookies_path.exists()
+
+
+def test_load_raises_when_bootstrap_fail_does_not_write(fake_cookies_path, monkeypatch):
+    """bootstrap 整体抛异常时同样不能落盘。补漏——确保错误路径两种都安全。"""
+    def boom():
+        raise RuntimeError("keychain denied")
+    monkeypatch.setattr(session_mod, "_bootstrap_from_browser", boom)
+
+    assert not fake_cookies_path.exists()
+    with pytest.raises(AuthRequiredError):
+        session_mod.Session.load()
+    assert not fake_cookies_path.exists()
 
 
 def test_write_cookies_json_format(tmp_path):

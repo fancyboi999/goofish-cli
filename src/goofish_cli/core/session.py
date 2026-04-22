@@ -2,10 +2,11 @@
 
 登录态解析顺序（从低认知负荷到高）：
 1. cookies.json 存在且有效 → 直接用
-2. cookies.json 不存在 → 自动从本机 Chrome 抓一次（零感知 bootstrap）
-3. Chrome 也抓不到 → 抛 AuthRequiredError，附带明确的手动兜底提示
+2. cookies.json 不存在 → 从本机浏览器自动导入（auto-detect Chrome/Edge/
+   Brave/Firefox/Safari 等，并发探测，哪个先成功用哪个）
+3. 浏览器也抓不到 → 抛 AuthRequiredError，附带明确的手动兜底提示
 
-环境变量 GOOFISH_NO_CHROME_BOOTSTRAP=1 可关闭自动抓 Chrome（CI 场景）。
+环境变量 GOOFISH_NO_CHROME_BOOTSTRAP=1 可关闭自动探测（CI 场景）。
 """
 from __future__ import annotations
 
@@ -46,7 +47,7 @@ class Session:
 
         if "unb" not in cookies or "_m_h5_tk" not in cookies:
             raise AuthRequiredError(
-                f"cookie 缺失 unb / _m_h5_tk，检查 {path} 是否完整（建议先在 Chrome 登录 "
+                f"cookie 缺失 unb / _m_h5_tk，检查 {path} 是否完整（建议先在浏览器登录 "
                 f"https://www.goofish.com 后再试 `goofish auth login`）"
             )
         http = requests.Session()
@@ -65,7 +66,7 @@ class Session:
 
 
 def _load_or_bootstrap_cookies(path: Path) -> dict[str, str]:
-    """先查本地 cookies.json；没有就从 Chrome 自动抓一次写入。"""
+    """先查本地 cookies.json；没有就从本机浏览器自动导入一次写盘。"""
     if path.exists():
         return _load_cookies(path)
 
@@ -73,8 +74,8 @@ def _load_or_bootstrap_cookies(path: Path) -> dict[str, str]:
     if os.environ.get("GOOFISH_NO_CHROME_BOOTSTRAP") == "1":
         raise AuthRequiredError(
             f"cookie 文件不存在：{path}。\n"
-            f"请执行 `goofish auth login` 自动从 Chrome 导入，"
-            f"或 `goofish auth login --from <path>` 手动指定。"
+            f"请执行 `goofish auth login` 从本机浏览器自动导入，"
+            f"或 `goofish auth login <path>` 手动指定。"
         )
 
     try:
@@ -88,7 +89,14 @@ def _load_or_bootstrap_cookies(path: Path) -> dict[str, str]:
             f"或手动导出 JSON：`goofish auth login <path>`。"
         ) from e
 
-    # bootstrap 成功 → 落盘一份，下次直接走缓存
+    # 写盘前最后一道校验：bootstrap 回来的 cookies 必须含 REQUIRED_KEYS，
+    # 否则坚决不落盘——避免半残 cookie 污染后续每次 Session.load。
+    if "unb" not in cookies or "_m_h5_tk" not in cookies:
+        raise AuthRequiredError(
+            f"已从 {browser} 拿到 cookie，但缺 unb / _m_h5_tk 关键字段，"
+            f"未写入 {path}。请在 {browser} 里重新登录 https://www.goofish.com 后重试。"
+        )
+
     write_cookies_json(path, cookies)
     logger.info(f"已从 {browser} 自动导入登录态 → {path}")
     return cookies

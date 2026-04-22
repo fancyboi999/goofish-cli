@@ -82,11 +82,31 @@ def test_extract_single_browser_missing_required_raises(monkeypatch):
     assert "edge" in str(ei.value)
 
 
-def test_extract_unknown_browser_raises(monkeypatch):
-    # subprocess 也屏蔽
+def test_extract_unknown_browser_raises_distinct_error(monkeypatch):
+    """未知浏览器名 vs 浏览器没登录态 —— 报错消息必须区分开，否则用户无法排障。
+
+    - 未知浏览器：消息应含"不认识"/"支持列表"（来自 _get_loader）
+    - 没登录态：消息应含"没找到有效的闲鱼登录态"
+    """
+    # 避免 subprocess 真跑
     monkeypatch.setattr(bc, "_extract_via_subprocess", lambda _: None)
-    with pytest.raises(bc.BrowserCookieError):
+
+    with pytest.raises(bc.BrowserCookieError) as ei:
         bc.extract_goofish_cookies(browser="nonexistent-browser")
+    msg = str(ei.value)
+    assert "不认识" in msg or "支持列表" in msg, f"未知浏览器报错消息没区分：{msg}"
+
+
+def test_subprocess_and_in_process_share_allowed_hosts():
+    """in-process 和 subprocess 两条路径必须共用同一个 ALLOWED_HOSTS 常量，
+    避免两条路径筛出的字段集漂移——Copilot 指出过 mmstat.com 两边不一致。"""
+    # 确保常量存在且非空
+    assert bc.ALLOWED_HOSTS, "ALLOWED_HOSTS 不能为空"
+    # subprocess 脚本通过 argv 传 hosts —— 反证两条路径没各自 hardcode 一份
+    import inspect
+    src = inspect.getsource(bc._extract_via_subprocess)
+    assert "hosts_csv" in src, "subprocess 脚本没从 argv 读 hosts，可能又 hardcode 了"
+    assert 'ALLOWED_HOSTS' in src, "subprocess 启动参数里没引用 ALLOWED_HOSTS 常量"
 
 
 # ── auto 模式 ────────────────────────────────────────────────────────────

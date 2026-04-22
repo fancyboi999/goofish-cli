@@ -42,6 +42,13 @@ def login(
     target = DEFAULT_COOKIE_PATH
 
     if source is None:
+        if raw:
+            # --raw 要求紧跟 cookie 字符串；如果没传 source，说明用户漏了参数——
+            # 不能静默走浏览器 auto-detect，否则 --raw 被吞，用户会困惑。
+            raise ValueError(
+                "--raw 需要配合 cookie 字符串使用，如："
+                "goofish auth login 'unb=...; _m_h5_tk=...' --raw"
+            )
         cookies, source_label = _pull_from_browser(browser)
     elif raw:
         cookies = _parse_raw(source)
