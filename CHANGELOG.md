@@ -6,6 +6,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-04-22
+
+### Added
+- **自动点击 passport 弹窗"快速进入"免密登录**（`core/refresh.py::_try_quick_enter`）：
+  v0.2.2 的 Playwright goto 首页在系统 Chrome 里抓出的 cookie 指纹不匹配时会弹
+  `#alibaba-login-box` 登录框，服务端拒发完整 session cookie 导致后续 mtop 报
+  `FAIL_SYS_SESSION_EXPIRED`。v0.2.3 起自动识别弹窗并点"快速进入"走浏览器免密
+  记忆登录，无需用户交互完成 session 恢复。刷新后追加访问 `/bought` 触发强鉴权页
+  下发完整 `cookie2 / sgcookie / _tb_token_`。
+- `goofish_page()` 已经支持的 `cookies=` 注入点被 refresh 复用，调用方 session
+  和浏览器上下文的登录态保持一致（承接 v0.2.2 Copilot review 的改造）。
+
+### Changed
+- mtop auto-refresh 错误码匹配从"仅 token 层"扩展到**也处理 session 层失效**
+  （`FAIL_SYS_SESSION_EXPIRED`）。`_is_token_expired_error` 重命名为
+  `_is_recoverable_auth_error`，语义更清晰。`FAIL_SYS_ILLEGAL_ACCESS` 仍不在
+  可恢复列表（风控层问题，刷 cookie 救不了）。
+
 ## [0.2.2] - 2026-04-22
 
 ### Added
@@ -86,7 +104,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...HEAD
+[0.2.3]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.1.0...v0.2.0
