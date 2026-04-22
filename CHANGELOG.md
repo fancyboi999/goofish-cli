@@ -6,6 +6,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-22
+
+### Changed
+- MCP script entry 新增 `goofish-cli`（与 package 名一致），`uvx goofish-cli` 即可直接拉起
+  MCP server。Claude Code 等 AI Agent 的 MCP 配置应使用这个入口。`goofish-mcp` 作为
+  次级入口保留，但只在本包已装到某 env 时可用（`pip install goofish-cli` /
+  `uv tool install goofish-cli` / `uvx --from goofish-cli goofish-mcp`）——单写
+  `uvx goofish-mcp` 仍会因 PyPI 无同名包解析失败。
+- `goofish_cli.__version__` 改为从 `importlib.metadata` 动态读取 package 版本，避免和
+  `pyproject.toml` 的 `version` 字段 drift（之前硬编码在 `__init__.py` 里，0.2.0 忘了同步）。
+
 ## [0.2.0] - 2026-04-22
 
 ### Added
@@ -56,6 +67,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fancyboi999/goofish-cli/releases/tag/v0.1.0
