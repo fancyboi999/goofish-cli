@@ -19,7 +19,7 @@
 **同一份定义**同时输出给三种消费者：
 
 - 👨‍💻 **人类**：`goofish item get 12345 --format table`
-- 🤖 **AI Agent（Claude Code / Cursor / Codex）**：`uvx goofish-mcp` → 自动注册成 MCP tool
+- 🤖 **AI Agent（Claude Code / Cursor / Codex）**：`uvx goofish-cli` → 自动注册成 MCP tool
 - 🧩 **Claude Skills**（规划中）：`skills/` 目录直接放进 Agent
 
 > 架构思想来自 [opencli](https://github.com/jackwener/opencli) 的 single-registry 设计。
@@ -176,7 +176,7 @@ $ goofish item publish \
   "mcpServers": {
     "goofish": {
       "command": "uvx",
-      "args": ["goofish-mcp"]
+      "args": ["goofish-cli"]
     }
   }
 }
@@ -192,13 +192,13 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 |---|---|
 | 11 个核心 mtop 接口 | 发布/下架/查询/图片/类目/地址/IM 全覆盖 |
 | CLI + `--format` 多格式输出 | `json` / `yaml` / `table` / `md` / `csv`，人机两用 |
-| MCP Server | `uvx goofish-mcp` 一行接入 Claude Code / Cursor |
+| MCP Server | `uvx goofish-cli` 一行接入 Claude Code / Cursor |
 | WebSocket 批量 push 全量解码 | 一帧多条消息全部还原，不丢单 |
 | WebSocket 自动重连 | 断线自退避重连，长跑无感知 |
 | 已读回执 / typing / 新消息通知分类 | `/s/sync` 元事件结构化为三类 JSONL |
 | 全局限流 + 风控熔断 | 令牌桶 1 写/分钟 + RGV587 自动熔断 |
 | 单元测试 | 33 个，ruff 零告警 |
-| 包分发 | `pip install goofish-cli` / `uvx goofish-mcp` |
+| 包分发 | `pip install goofish-cli` / `uvx goofish-cli` |
 
 ---
 

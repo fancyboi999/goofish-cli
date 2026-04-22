@@ -9,7 +9,7 @@
   "mcpServers": {
     "goofish": {
       "command": "uvx",
-      "args": ["goofish-mcp"]
+      "args": ["goofish-cli"]
     }
   }
 }
@@ -21,7 +21,7 @@
 {
   "mcpServers": {
     "goofish": {
-      "command": "/Users/you/Desktop/goofish-cli/.venv/bin/goofish-mcp"
+      "command": "/Users/you/Desktop/goofish-cli/.venv/bin/goofish-cli"
     }
   }
 }

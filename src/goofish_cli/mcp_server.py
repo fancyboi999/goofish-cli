@@ -1,10 +1,11 @@
 """FastMCP 入口。扫描同一 registry → 每个 Command 注册为 @mcp.tool()。
 
-启动：`uvx goofish-mcp` 或 `python -m goofish_cli.mcp_server`
+启动：`uvx goofish-cli`（推荐）或 `python -m goofish_cli.mcp_server`。
+`goofish-mcp` 是 legacy 别名，也指向这里。
 Claude Code 配置:
   {
     "mcpServers": {
-      "goofish": { "command": "uvx", "args": ["goofish-mcp"] }
+      "goofish": { "command": "uvx", "args": ["goofish-cli"] }
     }
   }
 """

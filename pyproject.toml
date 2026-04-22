@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "goofish-cli"
-version = "0.2.0"
+version = "0.2.1"
 description = "闲鱼 CLI — 支持 MCP，未来支持 Claude Skills。为 AI Agent 提供闲鱼自动化基础能力。"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -44,6 +44,10 @@ dev = [
 
 [project.scripts]
 goofish = "goofish_cli.cli:app"
+# MCP server 入口 —— 名字与 package 名一致，这样 `uvx goofish-cli` 即可拉起（uvx 默认
+# 按 command 名查包，和 scripts 名对齐就不用 --from 绕弯）。保留 goofish-mcp 作为 legacy
+# 别名兼容 v0.2.0 下已配置的用户。
+goofish-cli = "goofish_cli.mcp_server:main"
 goofish-mcp = "goofish_cli.mcp_server:main"
 
 [project.urls]
