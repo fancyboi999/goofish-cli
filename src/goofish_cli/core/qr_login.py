@@ -97,13 +97,28 @@ async def _login_via_qr_async(timeout: int) -> dict[str, str]:
         return {}
 
 
+def _resolve_timeout(timeout: int | None) -> int:
+    """timeout=None 时读 env；env 未设或非整数时回退默认值（不让 CLI 崩）。"""
+    if timeout is not None:
+        return timeout
+    raw = os.environ.get("GOOFISH_QR_TIMEOUT")
+    if not raw:
+        return _DEFAULT_QR_TIMEOUT
+    try:
+        return int(raw)
+    except ValueError:
+        logger.warning(
+            f"GOOFISH_QR_TIMEOUT={raw!r} 不是整数，回退默认 {_DEFAULT_QR_TIMEOUT}s"
+        )
+        return _DEFAULT_QR_TIMEOUT
+
+
 def login_via_qr(*, timeout: int | None = None, persist: bool = True) -> dict[str, str]:
     """阻塞：起 Playwright 让用户扫码，成功返回 cookies 并可选写回磁盘。
 
     空 dict 表示超时或 Playwright 异常（Chrome 未装等）。
     """
-    if timeout is None:
-        timeout = int(os.environ.get("GOOFISH_QR_TIMEOUT") or _DEFAULT_QR_TIMEOUT)
+    timeout = _resolve_timeout(timeout)
     try:
         cookies = asyncio.run(_login_via_qr_async(timeout))
     except Exception as e:  # noqa: BLE001 — Playwright 起不来、Chrome 未装等都走这里

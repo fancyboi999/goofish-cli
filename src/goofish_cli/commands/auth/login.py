@@ -40,7 +40,7 @@ def login(
     raw: bool = False,
     browser: str = "auto",
     qr: bool = False,
-    qr_timeout: int = 120,
+    qr_timeout: int | None = None,
 ) -> dict[str, object]:
     target = DEFAULT_COOKIE_PATH
 
@@ -52,12 +52,18 @@ def login(
                 "--qr 不能与 <source> / --raw / --browser 同时使用"
                 "（QR 走独立的 Playwright 浏览器）"
             )
+        # qr_timeout=None 让 core.qr_login 走统一的 env → 默认值 兜底逻辑；
+        # 这里若写 int 默认（例如 120）会把 env 覆盖路径挡掉（CLI 总是显式传值）。
         from goofish_cli.core.qr_login import login_via_qr
         cookies = login_via_qr(timeout=qr_timeout, persist=False)
         if not cookies:
+            # 空 dict 可能来自两种失败：超时未扫码，或 Playwright 起不来（Chrome
+            # 未装、端口占用等）。文案同时覆盖，让用户知道去翻日志。
             raise AuthRequiredError(
-                f"QR 扫码登录未完成（{qr_timeout}s 内未扫码或手机未确认）。"
-                f"可延长超时：goofish auth login --qr --qr-timeout 180"
+                "QR 扫码登录未完成——可能是超时内未扫码 / 手机未确认，"
+                "也可能是 Playwright 浏览器启动失败（Chrome 未装、端口占用等，"
+                "详见前面的 warning 日志）。可重试并延长超时："
+                "goofish auth login --qr --qr-timeout 180"
             )
         source_label = "qr"
     elif source is None:

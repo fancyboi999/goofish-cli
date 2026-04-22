@@ -79,6 +79,38 @@ def test_login_via_qr_respects_env_timeout(monkeypatch):
     assert out == {}
 
 
+def test_login_via_qr_env_invalid_falls_back(monkeypatch):
+    """Copilot review：env 非整数不能让命令崩，要 warn + 回退默认。"""
+    monkeypatch.setenv("GOOFISH_QR_TIMEOUT", "not-a-number")
+    captured: list[int] = []
+
+    async def _record(t):
+        captured.append(t)
+        return {}
+
+    monkeypatch.setattr(qr_login, "_login_via_qr_async", _record)
+    # 不应抛 ValueError
+    out = qr_login.login_via_qr(persist=False)
+
+    assert captured == [qr_login._DEFAULT_QR_TIMEOUT]
+    assert out == {}
+
+
+def test_login_via_qr_explicit_timeout_wins_over_env(monkeypatch):
+    """显式传 timeout 时不读 env。"""
+    monkeypatch.setenv("GOOFISH_QR_TIMEOUT", "999")
+    captured: list[int] = []
+
+    async def _record(t):
+        captured.append(t)
+        return {}
+
+    monkeypatch.setattr(qr_login, "_login_via_qr_async", _record)
+    qr_login.login_via_qr(timeout=42, persist=False)
+
+    assert captured == [42]
+
+
 @pytest.mark.parametrize(
     "cookies,expected",
     [
