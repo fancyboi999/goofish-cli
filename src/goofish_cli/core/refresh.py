@@ -1,4 +1,4 @@
-"""遇 FAIL_SYS_TOKEN_EXPIRED 时用 Playwright goto 闲鱼首页刷新 cookie。
+"""遇 FAIL_SYS_TOKEN_EXOIRED 时用 Playwright goto 闲鱼首页刷新 cookie。
 
 `_m_h5_tk` 只有 10 分钟有效期，服务端在浏览器**活跃访问**闲鱼页面时通过
 `Set-Cookie` 续期；浏览器静默几分钟就会过期。mcp/cli 用 `browser_cookie3`
@@ -8,6 +8,9 @@
 反正 search/item view 的浏览器基础设施已经搭好了，直接复用。
 
 开关：`GOOFISH_AUTO_REFRESH_TOKEN=0` 可关闭（CI 或想自定义刷新策略时）。
+
+注意：闲鱼后端返回的错误码是 `FAIL_SYS_TOKEN_EXOIRED`（是 EXOIRED 不是 EXPIRED，
+拼写没写错），和 `_AUTH_KEYWORDS` / `_is_token_expired_error` 匹配一致。
 """
 from __future__ import annotations
 
@@ -16,14 +19,16 @@ import os
 
 from loguru import logger
 
-from goofish_cli.core.session import DEFAULT_COOKIE_PATH, Session, write_cookies_json
+from goofish_cli.core.session import Session, resolve_cookie_path, write_cookies_json
 
 
-async def _refresh_async(url: str) -> dict[str, str]:
+async def _refresh_async(url: str, cookies: dict[str, str]) -> dict[str, str]:
     # 延迟 import：测试环境没装 playwright 也能 import refresh 模块
     from goofish_cli.core.browser import goofish_page
 
-    async with goofish_page() as page:
+    # 显式传 cookies——让 Playwright context 注入**调用方当前 session** 的登录态，
+    # 而不是让 goofish_page 再走一次 Session.load() 从磁盘拉（内存里可能已被改）。
+    async with goofish_page(cookies=cookies) as page:
         await page.goto(url, wait_until="domcontentloaded")
         # 给 mtop h5 sign 一些时间跑完并让服务端 Set-Cookie 新 _m_h5_tk
         await page.wait_for_timeout(1500)
@@ -41,8 +46,9 @@ def refresh_cookies_via_browser(session: Session, *, persist: bool = True) -> bo
 
     成功返回 True，否则 False（调用方按 False 走原始 AuthRequiredError）。
     """
+    current = {name: value for name, value in session.http.cookies.items() if value}
     try:
-        fresh = asyncio.run(_refresh_async("https://www.goofish.com"))
+        fresh = asyncio.run(_refresh_async("https://www.goofish.com", current))
     except Exception as e:  # noqa: BLE001 — Playwright 起不来、Chrome 未装、超时等都走这里
         logger.warning(f"用 Playwright 刷 cookie 失败：{e}")
         return False
@@ -61,11 +67,14 @@ def refresh_cookies_via_browser(session: Session, *, persist: bool = True) -> bo
     session.http.cookies.update(fresh)
 
     if persist:
+        # 尊重 GOOFISH_COOKIES_PATH —— 用户配置了自定义路径时不能写默认路径后再下次
+        # Session.load 又去读自定义路径，造成"刷新了但下次启动又回到旧的"。
+        path = resolve_cookie_path()
         # 此时 session.http.cookies 已没有同名冲突，安全转 dict
         merged = {**dict(session.http.cookies), **fresh}
         try:
-            write_cookies_json(DEFAULT_COOKIE_PATH, merged)
-            logger.info(f"cookie 已刷新并写回 {DEFAULT_COOKIE_PATH}")
+            write_cookies_json(path, merged)
+            logger.info(f"cookie 已刷新并写回 {path}")
         except OSError as e:
             logger.debug(f"写回 cookies.json 失败（内存里仍生效）：{e}")
     return True

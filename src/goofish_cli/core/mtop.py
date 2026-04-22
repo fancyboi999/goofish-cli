@@ -74,7 +74,7 @@ def call(
 ) -> dict[str, Any]:
     """调用 mtop 接口。返回原始 JSON。失败抛 GoofishError 子类。
 
-    `_auto_refresh=True`：遇到 `FAIL_SYS_TOKEN_EXPIRED` 时自动用 Playwright goto
+    `_auto_refresh=True`：遇到 `FAIL_SYS_TOKEN_EXOIRED` 时自动用 Playwright goto
     闲鱼首页刷一次 cookie 再重试一次。递归调用时用 False 避免死循环。
     """
     url = f"{MTOP_HOST}/h5/{api}/{version}/"

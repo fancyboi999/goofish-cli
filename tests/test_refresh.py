@@ -36,7 +36,8 @@ def test_refresh_merges_new_cookies_and_dedupes_same_name(tmp_path, monkeypatch)
     # 预埋一份旧 _m_h5_tk（默认 domain）
     session = _make_session({"_m_h5_tk": "old_1", "unb": "u1", "cookie2": "c2"})
 
-    monkeypatch.setattr(refresh, "DEFAULT_COOKIE_PATH", tmp_path / "cookies.json")
+    # 通过 GOOFISH_COOKIES_PATH 让 resolve_cookie_path 指到测试临时路径
+    monkeypatch.setenv("GOOFISH_COOKIES_PATH", str(tmp_path / "cookies.json"))
 
     fresh = {"_m_h5_tk": "new_2", "unb": "u1", "cookie2": "c3", "x5sec": "x"}
     with patch.object(refresh, "asyncio") as mock_async:
@@ -54,7 +55,7 @@ def test_refresh_merges_new_cookies_and_dedupes_same_name(tmp_path, monkeypatch)
 
 def test_refresh_fails_when_required_keys_missing(tmp_path, monkeypatch):
     session = _make_session({"_m_h5_tk": "old", "unb": "u1"})
-    monkeypatch.setattr(refresh, "DEFAULT_COOKIE_PATH", tmp_path / "cookies.json")
+    monkeypatch.setenv("GOOFISH_COOKIES_PATH", str(tmp_path / "cookies.json"))
 
     with patch.object(refresh, "asyncio") as mock_async:
         mock_async.run.side_effect = _fake_run({"foo": "bar"})  # 没 _m_h5_tk / unb
@@ -64,6 +65,23 @@ def test_refresh_fails_when_required_keys_missing(tmp_path, monkeypatch):
     # 不应覆盖旧 session
     assert session.http.cookies.get("_m_h5_tk") == "old"
     # 也不应写盘
+    assert not (tmp_path / "cookies.json").exists()
+
+
+def test_refresh_respects_custom_cookie_path(tmp_path, monkeypatch):
+    """GOOFISH_COOKIES_PATH 自定义路径必须被尊重（Copilot review feedback）。"""
+    custom = tmp_path / "nested" / "my.json"
+    monkeypatch.setenv("GOOFISH_COOKIES_PATH", str(custom))
+
+    session = _make_session({"_m_h5_tk": "old", "unb": "u1"})
+    fresh = {"_m_h5_tk": "new", "unb": "u1"}
+    with patch.object(refresh, "asyncio") as mock_async:
+        mock_async.run.side_effect = _fake_run(fresh)
+        ok = refresh.refresh_cookies_via_browser(session)
+
+    assert ok is True
+    assert custom.exists()
+    # 默认路径不应被写
     assert not (tmp_path / "cookies.json").exists()
 
 

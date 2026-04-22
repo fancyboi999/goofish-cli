@@ -22,6 +22,16 @@ from goofish_cli.core.errors import AuthRequiredError
 from goofish_cli.core.sign import generate_device_id
 
 DEFAULT_COOKIE_PATH = Path.home() / ".goofish-cli" / "cookies.json"
+
+
+def resolve_cookie_path(cookie_path: Path | str | None = None) -> Path:
+    """解析实际 cookie 文件路径。优先级：显式入参 > GOOFISH_COOKIES_PATH > 默认。
+
+    `Session.load()` 和自动刷新写回逻辑必须走同一套解析，避免"读一个路径、写另一个"。
+    """
+    return Path(os.path.expanduser(
+        cookie_path or os.environ.get("GOOFISH_COOKIES_PATH") or DEFAULT_COOKIE_PATH
+    ))
 DEVICE_CACHE_PATH = Path.home() / ".goofish-cli" / "device.json"
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -39,9 +49,7 @@ class Session:
 
     @classmethod
     def load(cls, cookie_path: Path | str | None = None) -> Session:
-        path = Path(os.path.expanduser(
-            cookie_path or os.environ.get("GOOFISH_COOKIES_PATH") or DEFAULT_COOKIE_PATH
-        ))
+        path = resolve_cookie_path(cookie_path)
 
         cookies = _load_or_bootstrap_cookies(path)
 
