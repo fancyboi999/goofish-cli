@@ -1,7 +1,7 @@
 """验 message list-chats 的 session 结构解析。"""
 from __future__ import annotations
 
-from goofish_cli.commands.message.list_chats import _parse_session
+from goofish_cli.commands.message.list_chats import _parse_session, _watch_record
 
 
 def test_parse_session_full():
@@ -38,6 +38,8 @@ def test_parse_session_full():
     assert out["last_msg"] == "在吗？这个还在卖吗"
     assert out["ts"] == 1776780018537
     assert out["session_type"] == 1
+    assert out["source"] == "baseline"
+    assert out["item_id"] == ""
 
 
 def test_parse_session_falls_back_to_fish_nick():
@@ -63,6 +65,8 @@ def test_parse_session_missing_fields_defaults():
         "last_msg": "",
         "ts": 0,
         "session_type": 0,
+        "item_id": "",
+        "source": "baseline",
     }
 
 
@@ -75,3 +79,28 @@ def test_parse_session_null_summary():
     assert out["session_id"] == "42"
     assert out["last_msg"] == ""
     assert out["unread"] == 0
+
+
+def test_watch_record_shape():
+    out = _watch_record({
+        "cid": "60585751957",
+        "session_type": 1,
+        "peer_user_id": "2215266653893",
+        "item_id": "900123",
+        "last_msg_id": "msg-x",
+        "last_msg_ts": "1776780018537",
+    })
+    assert out["session_id"] == "60585751957"
+    assert out["peer_user_id"] == "2215266653893"
+    assert out["item_id"] == "900123"
+    assert out["session_type"] == 1
+    assert out["ts"] == 1776780018537
+    assert out["source"] == "watch"
+    assert out["peer_nick"] == ""
+    assert out["last_msg"] == ""
+
+
+def test_watch_record_invalid_ts_defaults_zero():
+    out = _watch_record({"cid": "123"})
+    assert out["ts"] == 0
+    assert out["source"] == "watch"

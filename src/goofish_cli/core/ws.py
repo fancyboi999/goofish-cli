@@ -217,6 +217,113 @@ async def create_chat(ws: ClientConnection, *, myid: str, toid: str, item_id: st
     return mid
 
 
+async def collect_session_cids(
+    session: Session, duration: float = 5.0
+) -> list[dict[str, Any]]:
+    """连 WS + /reg + ackDiff(pts=0)，收 duration 秒，返回所有 push 到的 session cid。
+
+    涵盖两路：
+    - `/s/vulcan` 里 `operation.sessionInfo`（历史会话激活事件）
+    - `extract_meta_event` 的 `new_msg`（最新未读通知）
+
+    返回字段只有 `cid / session_type / item_id / last_msg_ts / last_msg_id`，
+    **没有** peer_user_id / 昵称 / 消息正文。原因：sessionInfo.extensions.extUserId/
+    itemSellerId 是卖家 ID（在登录账号作为卖家时就是自己），不能无脑当 peer。
+    上游想拿 peer/正文要自己走 `message history <cid>`。
+    """
+    token = get_access_token(session)
+    acc: dict[str, dict[str, Any]] = {}
+
+    async with connect(session) as ws:
+        reg = {
+            "lwp": "/reg",
+            "headers": {
+                "cache-header": "app-key token ua wv",
+                "app-key": IM_APP_KEY,
+                "token": token,
+                "ua": UA_IM,
+                "dt": "j",
+                "wv": "im:3,au:3,sy:6",
+                "sync": "0,0;0;0;",
+                "did": session.device_id,
+                "mid": generate_mid(),
+            },
+        }
+        await ws.send(json.dumps(reg))
+        ack_diff = {
+            "lwp": "/r/SyncStatus/ackDiff",
+            "headers": {"mid": generate_mid()},
+            "body": [
+                {
+                    "pipeline": "sync",
+                    "tooLong2Tag": "PNM,1",
+                    "channel": "sync",
+                    "topic": "sync",
+                    "highPts": 0,
+                    "pts": 0,
+                    "seq": 0,
+                    "timestamp": int(time.time() * 1000),
+                }
+            ],
+        }
+        await ws.send(json.dumps(ack_diff))
+
+        hb = asyncio.create_task(heartbeat_loop(ws))
+        deadline = time.time() + duration
+        try:
+            while time.time() < deadline:
+                try:
+                    raw = await asyncio.wait_for(
+                        ws.recv(), timeout=max(0.1, deadline - time.time())
+                    )
+                except TimeoutError:
+                    break
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                with suppress(Exception):
+                    await ws.send(json.dumps(build_ack(msg)))
+
+                for decoded in extract_push_messages(msg):
+                    if not isinstance(decoded, dict):
+                        continue
+                    # a) 会话激活事件：{sessionId, chatType, operation:{sessionInfo:{extensions}}}
+                    cid = str(decoded.get("sessionId") or "")
+                    op = decoded.get("operation") or {}
+                    sess_info = op.get("sessionInfo") if isinstance(op, dict) else None
+                    if cid and isinstance(sess_info, dict):
+                        ext = sess_info.get("extensions") or {}
+                        entry = acc.setdefault(cid, {"cid": cid})
+                        entry["session_type"] = (
+                            sess_info.get("sessionType") or decoded.get("chatType") or entry.get("session_type", 0)
+                        )
+                        entry["item_id"] = str(ext.get("itemId") or entry.get("item_id", ""))
+                        continue
+
+                    # b) new_msg：{"1":"cid@goofish","2":1,"3":msgId,"4":ts}
+                    meta = extract_meta_event(decoded)
+                    if meta and meta.get("event") == "new_msg":
+                        cid2 = meta["cid"]
+                        entry = acc.setdefault(cid2, {"cid": cid2})
+                        entry["last_msg_id"] = meta.get("msg_id", "")
+                        entry["last_msg_ts"] = meta.get("ts", "")
+        finally:
+            hb.cancel()
+
+    # 统一字段 + 填默认值
+    out: list[dict[str, Any]] = []
+    for cid, e in acc.items():
+        out.append({
+            "cid": cid,
+            "session_type": int(e.get("session_type") or 0),
+            "item_id": e.get("item_id", "") or "",
+            "last_msg_id": e.get("last_msg_id", ""),
+            "last_msg_ts": e.get("last_msg_ts", ""),
+        })
+    return out
+
+
 async def list_user_messages(
     session: Session, cid: str, limit_per_page: int = 20
 ) -> list[dict[str, Any]]:

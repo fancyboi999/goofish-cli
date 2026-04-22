@@ -79,7 +79,9 @@ $ goofish list-commands --format table
 | `media upload` | 上传图片到闲鱼 CDN | ✅ |
 | `category recommend` | AI 识别商品类目 | ❌ |
 | `location default` | 获取默认发布地址 | ❌ |
-| `message list-chats` | 拉取会话列表（左栏，含未读数 / 最后消息） | ❌ |
+| `message list-chats` | 拉取会话列表（左栏；`--watch-secs N` 叠加 WS 历史推送补漏） | ❌ |
+| `search items` | 搜索闲鱼商品（浏览器路径 Playwright + 系统 Chrome） | ❌ |
+| `item view` | 浏览器视角看商品详情（字段完整，抗风控；`item get` 的姊妹版） | ❌ |
 | `message history` | 拉取会话历史消息 | ❌ |
 | `message send` | 发送文本/图片 | ✅ |
 | `message watch` | 常驻 IM 长连（JSONL 输出） | ❌ |
@@ -203,7 +205,8 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 ## 🗺 Roadmap
 
 - [x] v0.1：12 个命令 + MCP + IM 三类事件
-- [x] v0.2：`goofish message list-chats`（会话列表 + sessionType 分类：1 真人 / 3 系统 / 6 互动 / 23 通知）
+- [x] v0.2：`goofish message list-chats`（会话列表 + sessionType 分类：1 真人 / 3 系统 / 6 互动 / 23 通知；`--watch-secs` 支持合并 WS `ackDiff(pts=0)` 历史推送补齐 h5 接口漏掉的会话）
+- [x] v0.2：浏览器自动化链路（吸纳 [OpenCLI](https://github.com/jackwener/opencli) 精华）—— Playwright + 系统 Chrome 驱动 `goofish search items` / `goofish item view`，抗风控 & 完整字段
 - [ ] v0.2：`goofish message create-chat`（主动与陌生用户建会话）
 - [ ] v0.2：Claude Skills 包装（`skills/` 目录）
 - [ ] v0.3：`goofish order`（订单状态查询 / 发货）

@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "goofish-cli"
-version = "0.1.0"
+version = "0.2.0"
 description = "闲鱼 CLI — 支持 MCP，未来支持 Claude Skills。为 AI Agent 提供闲鱼自动化基础能力。"
 readme = "README.md"
 license = { text = "Apache-2.0" }
@@ -31,6 +31,7 @@ dependencies = [
   "mcp>=1.2",
   "websockets>=13",
   "browser-cookie3>=0.20",
+  "playwright>=1.58.0",
 ]
 
 [project.optional-dependencies]
