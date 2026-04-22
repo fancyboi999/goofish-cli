@@ -139,13 +139,13 @@ async def _run(item_id: str) -> dict[str, Any]:
         raise GoofishError("商品详情页返回结构非预期")
 
     err = result.get("error")
-    if err == "auth-required":
-        raise AuthRequiredError("商品详情页要求登录，cookies 可能失效")
     if err == "blocked":
         raise GoofishError("商品详情页被验证码/安全验证拦截，触发风控")
     if err == "mtop-not-ready":
         raise GoofishError("页面 window.lib.mtop 未就绪（等待超时），页面加载异常")
 
+    # auth 判定统一走 mtop 返回的 error_code/error_message 里的 SESSION_EXPIRED，
+    # 不再依赖 body 文案正则（"登录后" 在页脚也会出现，误报多）。
     err_code = str(result.get("error_code") or "")
     err_msg = str(result.get("error_message") or "")
     if re.search(r"FAIL_SYS_SESSION_EXPIRED|SESSION_EXPIRED", err_code + " " + err_msg):

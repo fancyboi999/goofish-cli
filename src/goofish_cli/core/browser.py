@@ -4,11 +4,13 @@
 1. **用系统 Chrome**（`channel="chrome"`），不用 playwright 自带的 bundled chromium——
    bundled chromium 的 UA / CDP 指纹太"裸"，是风控高危目标；系统 Chrome 是真实用户
    每天在用的可执行，配上真实 cookies 后基本等同正常浏览。
-2. **独立 user_data_dir**（`~/.goofish-cli/chrome-profile/`）：不动用户自己的 Chrome
-   profile，避免"用户正在用 Chrome，我们起不来"的 profile 锁冲突。首次启动是空 profile，
-   我们靠 `add_cookies` 把登录态灌进去。cookie 来源复用 `Session.load()` 的三级兜底
-   —— `cookies.json` → `browser_cookie3` 自动从本机 Chrome 抓 → `AuthRequiredError`，
-   不在这里重复实现。
+2. **每次调用独立 profile**（`~/.goofish-cli/profiles/chrome-<tmp>/`）：Chrome 一个
+   `user_data_dir` 同时只能被一个进程打开（`SingletonLock`），固定路径会让并发调用
+   （MCP 同时跑多个 tool / 用户手动并发）直接 ProfileInUse 起不来。所以每次 tmp 一个
+   profile，退出清理——代价是首次启动多几百 ms，收益是天然支持并发。登录态不需要靠
+   profile 持久化，我们每次用 `add_cookies` 从 `Session.load()` 灌。cookie 来源复用
+   `Session.load()` 的三级兜底 —— `cookies.json` → `browser_cookie3` 自动从本机
+   Chrome 抓 → `AuthRequiredError`，不在这里重复实现。
 3. **默认 headful**：实测 headless chrome 的指纹（即便 channel=chrome）仍会被闲鱼判
    「非法访问」，返回"请使用正常浏览器访问"。要通过就必须以窗口模式启动。CI / 无桌面
    场景可 `GOOFISH_HEADLESS=1` 切回 headless（代价是可能被风控）。
@@ -19,6 +21,8 @@
 from __future__ import annotations
 
 import os
+import shutil
+import tempfile
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -28,7 +32,7 @@ from loguru import logger
 
 from goofish_cli.core.session import Session
 
-PROFILE_DIR = Path.home() / ".goofish-cli" / "chrome-profile"
+PROFILES_PARENT = Path.home() / ".goofish-cli" / "profiles"
 
 # 需要种的域。goofish.com 下的 cookie 只在 .goofish.com 生效，
 # 但淘系签名链路依赖的 _m_h5_tk / x5sec / sgcookie 历史上会跨 .taobao.com。
@@ -82,7 +86,7 @@ async def goofish_page(
     headless: bool | None = None,
     viewport: tuple[int, int] = (1440, 900),
 ) -> AsyncIterator[Any]:
-    """启动系统 Chrome（持久化 profile）+ 灌 cookie，yield 出一个 `Page`。
+    """启动系统 Chrome（独立 tmp profile）+ 灌 cookie，yield 出一个 `Page`。
 
     用法：
         async with goofish_page() as page:
@@ -95,38 +99,44 @@ async def goofish_page(
         # 默认 headful。CI 用户显式 GOOFISH_HEADLESS=1 切回（可能触发风控）。
         headless = os.environ.get("GOOFISH_HEADLESS") == "1"
 
-    PROFILE_DIR.mkdir(parents=True, exist_ok=True)
+    PROFILES_PARENT.mkdir(parents=True, exist_ok=True)
+    # 每次调用独立 profile 目录，避开 Chrome SingletonLock 并发冲突
+    profile_dir = Path(tempfile.mkdtemp(prefix="chrome-", dir=str(PROFILES_PARENT)))
     cookies = _load_cookies_from_session()
     pw_cookies = _cookies_to_playwright(cookies)
 
-    async with async_playwright() as pw:
-        context = await pw.chromium.launch_persistent_context(
-            user_data_dir=str(PROFILE_DIR),
-            channel="chrome",
-            headless=headless,
-            viewport={"width": viewport[0], "height": viewport[1]},
-            locale="zh-CN",
-            timezone_id="Asia/Shanghai",
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-default-browser-check",
-                "--no-first-run",
-            ],
-        )
-        try:
-            await context.add_cookies(pw_cookies)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(f"注入 cookie 失败：{e}")
+    try:
+        async with async_playwright() as pw:
+            context = await pw.chromium.launch_persistent_context(
+                user_data_dir=str(profile_dir),
+                channel="chrome",
+                headless=headless,
+                viewport={"width": viewport[0], "height": viewport[1]},
+                locale="zh-CN",
+                timezone_id="Asia/Shanghai",
+                args=[
+                    "--disable-blink-features=AutomationControlled",
+                    "--no-default-browser-check",
+                    "--no-first-run",
+                ],
+            )
+            try:
+                await context.add_cookies(pw_cookies)
+            except Exception as e:  # noqa: BLE001
+                logger.warning(f"注入 cookie 失败：{e}")
 
-        page = context.pages[0] if context.pages else await context.new_page()
-        # 隐藏 webdriver 特征（CDP 检测 cookie 外的最后一道门）
-        await page.add_init_script(
-            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
-        )
-        try:
-            yield page
-        finally:
-            await context.close()
+            page = context.pages[0] if context.pages else await context.new_page()
+            # 隐藏 webdriver 特征（CDP 检测 cookie 外的最后一道门）
+            await page.add_init_script(
+                "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+            )
+            try:
+                yield page
+            finally:
+                await context.close()
+    finally:
+        # 清理 tmp profile。忽略错误（进程被 kill 时残留目录由用户手动清 ~/.goofish-cli/profiles/）
+        shutil.rmtree(profile_dir, ignore_errors=True)
 
 
 async def auto_scroll(page: Any, times: int = 2, pause_ms: int = 800) -> None:

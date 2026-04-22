@@ -1,15 +1,19 @@
 """message list-chats — 拉取会话列表（左栏）。
 
-数据来源两路合并（见 memory `goofish h5 session.sync 漏会话`）：
+h5 接口 `mtop.taobao.idlemessage.pc.session.sync` v3.0 是阉割版，只返回活跃
+Top N 会话；网页左栏看到的完整列表其实是靠 ACCS 长连累积的，单次 HTTP 拿不到。
+所以提供 `--watch-secs N` 可选开关：短时连 WS + `ackDiff(pts=0)` 拉历史推送，
+从中抽取会话激活事件 + new_msg 通知里的 cid，补齐 baseline 漏掉的会话。
 
-1. `mtop.taobao.idlemessage.pc.session.sync` v3.0 —— 活跃 Top N 会话，字段齐全。
-2. `--watch-secs N`（可选）：短时连 WS + pts=0 的 ackDiff，补会话激活事件
-   + new_msg 通知里的 cid。这部分 record 只有 cid / peer_user_id / item_id /
-   last_msg_id / last_msg_ts，**没有** 昵称和消息正文；调用方要正文自己调
-   `message history <cid>`。
+数据来源两路合并：
 
-输出 record 带 `source` 字段区分 `baseline`（来自 session.sync，字段齐全）
-和 `watch`（来自 WS，只有 cid 基础信息）。
+1. `mtop.taobao.idlemessage.pc.session.sync` v3.0 —— baseline，字段齐全
+   （peer_nick / peer_user_id / unread / last_msg / ts / session_type / item_id）。
+2. `--watch-secs N`（可选）—— watch，只有 cid 骨架
+   （session_id / session_type / item_id / ts），`peer_nick` / `peer_user_id` /
+   `last_msg` / `unread` 都填空值。要正文请自己调 `message history <cid>`。
+
+输出 record 带 `source` 字段区分 `baseline` 和 `watch`，shape 一致，方便调用方统一处理。
 """
 
 import asyncio
