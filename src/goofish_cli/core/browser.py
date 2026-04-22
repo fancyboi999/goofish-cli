@@ -85,8 +85,13 @@ async def goofish_page(
     *,
     headless: bool | None = None,
     viewport: tuple[int, int] = (1440, 900),
+    cookies: dict[str, str] | None = None,
 ) -> AsyncIterator[Any]:
     """启动系统 Chrome（独立 tmp profile）+ 灌 cookie，yield 出一个 `Page`。
+
+    `cookies` 可选：显式传入 `{name: value}` 时直接用；不传则走 `Session.load()`
+    三级兜底。自动刷 `_m_h5_tk` 的调用方需要用内存里当前 session 的 cookies 而非
+    磁盘快照（可能已被改）—— 传 `cookies=session.http.cookies` 展平后的 dict。
 
     用法：
         async with goofish_page() as page:
@@ -102,7 +107,8 @@ async def goofish_page(
     PROFILES_PARENT.mkdir(parents=True, exist_ok=True)
     # 每次调用独立 profile 目录，避开 Chrome SingletonLock 并发冲突
     profile_dir = Path(tempfile.mkdtemp(prefix="chrome-", dir=str(PROFILES_PARENT)))
-    cookies = _load_cookies_from_session()
+    if cookies is None:
+        cookies = _load_cookies_from_session()
     pw_cookies = _cookies_to_playwright(cookies)
 
     try:

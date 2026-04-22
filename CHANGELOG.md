@@ -6,6 +6,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-04-22
+
+### Added
+- **`_m_h5_tk` 自动刷新机制**（`core/refresh.py`）：mtop 调用遇
+  `FAIL_SYS_TOKEN_EXOIRED` / `FAIL_SYS_TOKEN_EMPTY` / `令牌过期` 时，自动用
+  Playwright `goto` 一次 `https://www.goofish.com` 触发服务端 `Set-Cookie` 续 token，
+  合并回 session 后重试一次原请求。开关：`GOOFISH_AUTO_REFRESH_TOKEN=0` 关闭（CI 或
+  想自定义刷新策略时）。
+  - **只处理 token 层失效**：`FAIL_SYS_SESSION_EXPIRED` / `FAIL_SYS_ILLEGAL_ACCESS` 不触发
+    自动刷新（意味着 `unb` / `cookie2` 也失效了，刷 `_m_h5_tk` 救不了，仍按原 AuthRequiredError 抛）。
+  - **避免跨 domain 同名 cookie 并存**：Playwright 写回的新 cookie 和 `browser_cookie3`
+    导入的旧 cookie 有不同 domain，`requests.CookieJar` 允许两者并存，但后续
+    `cookies.get(name)` 会抛 `CookieConflictError`。刷新时先 `clear(domain, path, name)`
+    掉所有同名旧条目再 `update(fresh)`。
+  - 刷新成功后自动写回 `~/.goofish-cli/cookies.json`，下次启动不用再刷。
+
+### Changed
+- mtop `call()` 新增 `_auto_refresh` 参数（默认 True），递归重试时置 False 避免死循环。
+
 ## [0.2.1] - 2026-04-22
 
 ### Changed
@@ -67,7 +86,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...HEAD
+[0.2.2]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/fancyboi999/goofish-cli/releases/tag/v0.1.0

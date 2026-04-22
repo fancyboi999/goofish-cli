@@ -11,6 +11,8 @@ import json
 import time
 from typing import Any
 
+from loguru import logger
+
 from goofish_cli.core.errors import (
     AuthRequiredError,
     GoofishError,
@@ -68,8 +70,13 @@ def call(
     spm_cnt: str = "a21ybx.home.0.0",
     extra_params: dict[str, str] | None = None,
     headers: dict[str, str] | None = None,
+    _auto_refresh: bool = True,
 ) -> dict[str, Any]:
-    """调用 mtop 接口。返回原始 JSON。失败抛 GoofishError 子类。"""
+    """调用 mtop 接口。返回原始 JSON。失败抛 GoofishError 子类。
+
+    `_auto_refresh=True`：遇到 `FAIL_SYS_TOKEN_EXOIRED` 时自动用 Playwright goto
+    闲鱼首页刷一次 cookie 再重试一次。递归调用时用 False 避免死循环。
+    """
     url = f"{MTOP_HOST}/h5/{api}/{version}/"
     t_ms = str(int(time.time() * 1000))
     data_val = data if isinstance(data, str) else json.dumps(data, separators=(",", ":"))
@@ -104,8 +111,32 @@ def call(
         timeout=30,
     )
     raw = resp.json()
-    _classify_error(raw, api)
+    try:
+        _classify_error(raw, api)
+    except AuthRequiredError as e:
+        # 只对 h5_tk 层的过期做自动刷新 —— session 级失效（FAIL_SYS_SESSION_EXPIRED
+        # / ILLEGAL_ACCESS）通常意味着 unb/cookie2 也得换，不是刷 _m_h5_tk 能救的。
+        if not (_auto_refresh and _is_token_expired_error(e)):
+            raise
+        from goofish_cli.core.refresh import is_enabled, refresh_cookies_via_browser
+        if not is_enabled():
+            raise
+        logger.info(f"[{api}] 检测到 _m_h5_tk 过期，尝试 Playwright goto 刷新 cookie…")
+        if not refresh_cookies_via_browser(session):
+            raise
+        # 刷新成功：重试一次，禁用递归自动刷新
+        return call(
+            session, api, data,
+            version=version, spm_cnt=spm_cnt,
+            extra_params=extra_params, headers=headers,
+            _auto_refresh=False,
+        )
     return raw
+
+
+def _is_token_expired_error(e: AuthRequiredError) -> bool:
+    msg = str(e)
+    return any(kw in msg for kw in ("FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EMPTY", "令牌过期"))
 
 
 def _classify_error(raw: dict[str, Any], api: str) -> None:
