@@ -64,7 +64,8 @@ Changelog = "https://github.com/fancyboi999/goofish-cli/blob/main/CHANGELOG.md"
 packages = ["src/goofish_cli"]
 
 # 内置 Claude Skills：把项目根 `skills/` 收进 wheel 的 `goofish_cli/_bundled_skills/`，
-# 让 `goofish skills install` 能通过 importlib.resources 找到它。
+# 让 `goofish skills install` 能按包内路径定位到它（当前实现用 `goofish_cli.__file__`
+# 拼子路径，不依赖 importlib.resources，避免 namespace package 在不同 py 版本上的行为差异）。
 [tool.hatch.build.targets.wheel.force-include]
 "skills" = "src/goofish_cli/_bundled_skills"
 

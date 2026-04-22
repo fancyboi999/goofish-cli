@@ -4,7 +4,7 @@ description: |
   闲鱼（goofish.com）自动化运营的总入口 skill。何时激活：用户首次提到
   闲鱼 / 咸鱼 / goofish / 二手交易 / 挂闲置 / 回买家消息 / 发商品到闲鱼，
   或用户询问本工具如何使用、有哪些能力、能做什么。本 skill 介绍 goofish-cli
-  的定位、账号模型、15 个 MCP 工具速查、风控底线，并指向其它专项 skill
+  的定位、账号模型、16 个 MCP 工具速查、风控底线，并指向其它专项 skill
   （goofish-publish-item / goofish-reply-buyer / goofish-risk-guard /
   goofish-shop-diagnosis）。
 metadata:
@@ -47,7 +47,7 @@ metadata:
   `goofish auth login --qr`。
 - 账号身份细节见 `references/accounts.md`。
 
-## 15 个 MCP 工具速查
+## 16 个 MCP 工具速查
 
 详单在 `references/mcp-tools-index.md`。读不读看任务：
 - 发商品 → 只需 `category_recommend / media_upload / location_default / item_publish`
@@ -55,6 +55,7 @@ metadata:
 - 诊断 → 只需 `search_items / item_view / item_get`
 - 登录态诊断 → `auth_status`
 - 下架/删除 → `item_delete`
+- skills 安装 → `skills_install`（辅助类工具，一般 Agent 不会直接调；由用户在终端跑）
 
 **工具命名**：MCP 注册为 `mcp__goofish__{namespace}_{name}` 下划线格式。
 例如 CLI 里的 `message list-chats` 在 MCP 是 `mcp__goofish__message_list_chats`。

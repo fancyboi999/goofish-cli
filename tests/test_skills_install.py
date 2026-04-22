@@ -87,11 +87,12 @@ def test_command_registered_in_registry() -> None:
     assert cmd.name == "install"
 
 
-def test_bundled_skills_bundle_not_present_falls_back(monkeypatch, tmp_path) -> None:
-    """模拟 wheel 态下找不到 _bundled_skills，验证 fallback 到 repo skills/ 能成功。"""
+def test_bundled_skills_missing_and_fallback_unreachable_raises(monkeypatch, tmp_path) -> None:
+    """wheel 态找不到 _bundled_skills 且 dev 态 repo skills/ 也不可达时，应抛 FileNotFoundError。"""
     import goofish_cli
 
-    # 不真实改包位置，只 patch _bundle_root 的内部判断
+    # 用假 pkg 路径骗 `_bundle_root`：pkg_dir 下没有 _bundled_skills，
+    # pkg_dir.parent.parent 下也不会有 skills/ 目录 → 两条路径都失败 → FileNotFoundError
     fake_pkg_dir = tmp_path / "fake_pkg"
     fake_pkg_dir.mkdir()
     fake_init = fake_pkg_dir / "__init__.py"
@@ -99,6 +100,22 @@ def test_bundled_skills_bundle_not_present_falls_back(monkeypatch, tmp_path) -> 
 
     monkeypatch.setattr(goofish_cli, "__file__", str(fake_init))
 
-    # 此时 pkg_dir/_bundled_skills 不存在；fallback 要看 repo_root/skills，这里指不到
     with pytest.raises(FileNotFoundError):
         mod._bundle_root()
+
+
+def test_install_force_replaces_file_with_skill_dir(tmp_path) -> None:
+    """--force 时如果目标位置是**文件**（或 symlink），不能用 rmtree；要 unlink 再 copytree。"""
+    dest = tmp_path / "target"
+    dest.mkdir()
+    # 在目标位置创建一个同名文件（不是目录），模拟用户误操作
+    stray = dest / "goofish-overview"
+    stray.write_text("not a skill dir, just a file")
+
+    out = mod.install(dest=str(dest), force=True)
+
+    # 应该全部 installed，不应该报 NotADirectoryError
+    assert all(row["status"] == "installed" for row in out)
+    # 原文件应被替换为目录
+    assert (dest / "goofish-overview").is_dir()
+    assert (dest / "goofish-overview" / "SKILL.md").is_file()

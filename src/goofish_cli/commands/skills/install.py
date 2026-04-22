@@ -69,11 +69,15 @@ def install(
     results: list[dict[str, Any]] = []
     for src in skill_dirs:
         dst = target / src.name
-        if dst.exists():
+        if dst.exists() or dst.is_symlink():
             if not force:
                 results.append({"skill": src.name, "status": "skipped (exists)", "path": str(dst)})
                 continue
-            shutil.rmtree(dst)
+            # 目标可能是目录 / 文件 / 符号链接——分类清理，别让 rmtree 在文件上炸
+            if dst.is_symlink() or dst.is_file():
+                dst.unlink()
+            else:
+                shutil.rmtree(dst)
         shutil.copytree(src, dst)
         results.append({"skill": src.name, "status": "installed", "path": str(dst)})
 

@@ -33,8 +33,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 - `pyproject.toml` 新增 `[tool.hatch.build.targets.wheel.force-include]` 和
-  `[tool.hatch.build.targets.sdist]` 段，确保 wheel 和 sdist 都带 skills/ 和
-  `.claude-plugin/`。
+  `[tool.hatch.build.targets.sdist]` 段。wheel 只 force-include `skills/`（运行时
+  `goofish skills install` 唯一需要的资源）；sdist 额外带 `.claude-plugin/` 和
+  `README / CHANGELOG / LICENSE`，便于从源码分发时拿到完整元数据。
 
 ## [0.2.4] - 2026-04-22
 

@@ -1,7 +1,9 @@
-# MCP 工具速查（共 15 个）
+# MCP 工具速查（共 16 个）
 
 > 命名规则：`mcp__goofish__{namespace}_{name}`，CLI 的 kebab-case 在 MCP 里被转成 snake_case。
 > 例：CLI `goofish message list-chats` → MCP `mcp__goofish__message_list_chats`。
+> `goofish skills install` 也会被 registry 扫到并暴露为 `mcp__goofish__skills_install`，
+> 但它是给**用户在终端跑**的辅助命令，Agent 通常不主动调。
 
 ## Auth（3 个）
 
@@ -40,6 +42,12 @@
 | `mcp__goofish__search_items` | 搜闲鱼商品（浏览器路径，抗风控） | 诊断限流时用"卖家视角 vs 买家视角"对比 |
 | `mcp__goofish__location_default` | 账号默认发布地址 | `item_publish` 不传 addr 时的兜底 |
 
+## Skills（1 个，辅助类）
+
+| 工具 | 用途 | 备注 |
+|---|---|---|
+| `mcp__goofish__skills_install` | 把内置 Claude Skills 复制到 `~/.claude/skills/`（或 `--dest`） | `--list` 仅列出、`--force` 覆盖已有；给**用户**在终端跑，Agent 一般不主动调 |
+
 ## 调用模式速记
 
 **发布闭环**（场景：挂一件闲置）
@@ -70,6 +78,6 @@ auth_status → search_items (用自家核心词，买家视角) → item_view (
 |---|---|---|
 | `FAIL_SYS_TOKEN_EXOIRED` | `_m_h5_tk` 过期（10 分钟 TTL） | 自动刷 token（已内置），Agent 无需干预 |
 | `FAIL_SYS_SESSION_EXPIRED` | `cookie2` session 失效 | 自动点 passport "快速进入"；失败则提示用户 `goofish auth login --qr` |
-| `FAIL_SYS_ILLEGAL_ACCESS` | 风控拒绝 | 降速重试，或提示用户过几小时再来 |
+| `FAIL_SYS_ILLEGAL_ACCESS` | 风控拒绝 | **不要连续重试**（会加深风控）；按 `goofish-risk-guard/references/x5sec-recovery.md` 走——让用户从浏览器重导 cookie，或停手 2-6 小时 |
 | `RATE_LIMITED` | 本地令牌桶耗尽 | 等下一分钟 |
 | `GUARD_TRIPPED` | 本地熔断（连续风控触发） | `auth_reset_guard` + 从浏览器重导 cookie |
