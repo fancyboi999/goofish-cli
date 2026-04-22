@@ -10,6 +10,7 @@
 - `auth login --browser edge`      指定单个浏览器
 - `auth login <path>`              从 JSON 文件导入
 - `auth login <cookie_str> --raw`  粘贴 "k=v; k=v" 字符串
+- `auth login --qr`                扫码登录（兜底：浏览器免密记忆失效 / 换机 / 首次用）
 
 触发条件：
 1. 所有浏览器都没拿到 → 报错里列出手动兜底方案
@@ -38,10 +39,28 @@ def login(
     *,
     raw: bool = False,
     browser: str = "auto",
+    qr: bool = False,
+    qr_timeout: int = 120,
 ) -> dict[str, object]:
     target = DEFAULT_COOKIE_PATH
 
-    if source is None:
+    if qr:
+        # QR 和其它来源互斥：QR 会起独立 Playwright 浏览器，source / --raw / 指定
+        # --browser 没意义还会让用户困惑（"我传的 cookie 哪去了？"）
+        if source is not None or raw or browser != "auto":
+            raise ValueError(
+                "--qr 不能与 <source> / --raw / --browser 同时使用"
+                "（QR 走独立的 Playwright 浏览器）"
+            )
+        from goofish_cli.core.qr_login import login_via_qr
+        cookies = login_via_qr(timeout=qr_timeout, persist=False)
+        if not cookies:
+            raise AuthRequiredError(
+                f"QR 扫码登录未完成（{qr_timeout}s 内未扫码或手机未确认）。"
+                f"可延长超时：goofish auth login --qr --qr-timeout 180"
+            )
+        source_label = "qr"
+    elif source is None:
         if raw:
             # --raw 要求紧跟 cookie 字符串；如果没传 source，说明用户漏了参数——
             # 不能静默走浏览器 auto-detect，否则 --raw 被吞，用户会困惑。

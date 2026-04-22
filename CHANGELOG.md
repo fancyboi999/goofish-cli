@@ -6,6 +6,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-04-22
+
+### Added
+- **`auth login --qr` 扫码登录兜底**（`core/qr_login.py`）：v0.2.3 的"快速进入"
+  免密登录依赖浏览器免密记忆，换机 / 长期不登 / 清 cookie 后记忆失效就没法用。
+  v0.2.4 补上扫码路径——Playwright 开干净 tmp profile goto 首页触发 passport
+  iframe（`styleType=vertical` 布局里 QR canvas 首屏就在 DOM 里，无需切 tab），
+  用户用手机闲鱼 App 扫码 + 手机确认后，轮询 `context.cookies()` 直到见到完整
+  session cookie（`_m_h5_tk / unb / cookie2`）即判成功，抓快照写回
+  `~/.goofish-cli/cookies.json`。
+  - `--qr-timeout N`（默认 120s）/ `GOOFISH_QR_TIMEOUT=N` 可调；超时抛
+    `AuthRequiredError`，提示延长超时重试。
+  - 传 `goofish_page(cookies={})` 是关键——不传空 dict 会走 `Session.load` 把
+    已有 cookie 灌进去，passport 就优先走"快速进入"跳过 QR，用户看不到扫码界面。
+  - 和 v0.2.3 refresh 自动路径分工：refresh=无感续命（SESSION_EXPIRED 时自动
+    点"快速进入"），qr_login=显式扫码（需用户拿手机）。不混用，不塞进 refresh
+    自动 retry（扫码时间不可控，会违反"无感"语义）。
+
+### Changed
+- `auth login` 新增 `--qr` / `--qr-timeout` flag；`--qr` 与 `<source>` /
+  `--raw` / `--browser` 互斥，组合使用会直接报错（QR 走独立 Playwright 浏览器，
+  同时传其它来源会让用户困惑）。
+
 ## [0.2.3] - 2026-04-22
 
 ### Added
@@ -104,7 +127,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.4...HEAD
+[0.2.4]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...v0.2.2
 [0.2.1]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.0...v0.2.1
