@@ -6,6 +6,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-22
+
+### Added
+- **Claude Skills 套件**（5 个 skill，打包进 wheel）：把 goofish-cli 从"给 Agent 用的
+  工具"升级成"给 Agent 的完整经验体"。Agent 在 Claude Code / Cursor 里识别到闲鱼任务
+  即加载对应 skill 走 reference 知识库，不再 zero-shot 试错。
+  - `goofish-overview`：总入口。介绍定位、账号模型、15 个 MCP 工具速查、风控硬红线，
+    dispatch 到其他 4 个专项 skill。
+  - `goofish-risk-guard`：知识库型 skill。内置违禁词表、外联词正则、发布红线清单、
+    RGV587/x5sec 恢复指引。被 publish-item / reply-buyer 频繁引用。
+  - `goofish-publish-item`：发布闭环。类目识别 → 标题 5 段式生成 → 风控扫描 →
+    批量传图 → 用户确认 → `item_publish`。强约束"不跳过用户确认"。
+  - `goofish-reply-buyer`：消息闭环。`message_watch/list_chats/history/send` 四件套
+    + 议价小刀/大刀/屠龙刀三档策略 + 意图 5 分类。不托管发送权。
+  - `goofish-shop-diagnosis`：限流诊断。`search_items` 买家视角搜 + `item_view`
+    历史对比 → 归因清单给嫌疑排序 + 修复建议。纯读不写。
+- **`goofish skills install` 命令**（`commands/skills/install.py`）：把内置 skill
+  复制到 `~/.claude/skills/`（或 `--dest` 指定路径）。`--list` 仅列举，`--force`
+  覆盖已存在。支持 `uvx --from goofish-cli goofish skills install` 一行装机。
+- **`.claude-plugin/marketplace.json`**：Claude Code Plugin Marketplace 分发清单，
+  5 个 skill 均登记在 `plugins` 数组，`install.cli` 指向 `goofish skills install`。
+- **wheel 打包 skills**：hatch `force-include` 把项目根 `skills/` 装进
+  `goofish_cli/_bundled_skills/`，运行时用 `goofish_cli.__file__` 拿包路径定位
+  （不依赖 namespace package 的 importlib.resources 行为，避免 py 版本差异坑）。
+
+### Changed
+- `pyproject.toml` 新增 `[tool.hatch.build.targets.wheel.force-include]` 和
+  `[tool.hatch.build.targets.sdist]` 段。wheel 只 force-include `skills/`（运行时
+  `goofish skills install` 唯一需要的资源）；sdist 额外带 `.claude-plugin/` 和
+  `README / CHANGELOG / LICENSE`，便于从源码分发时拿到完整元数据。
+
 ## [0.2.4] - 2026-04-22
 
 ### Added
@@ -127,7 +158,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.4...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...v0.2.3
 [0.2.2]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.1...v0.2.2

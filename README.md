@@ -20,7 +20,7 @@
 
 - 👨‍💻 **人类**：`goofish item get 12345 --format table`
 - 🤖 **AI Agent（Claude Code / Cursor / Codex）**：`uvx goofish-cli` → 自动注册成 MCP tool
-- 🧩 **Claude Skills**（规划中）：`skills/` 目录直接放进 Agent
+- 🧩 **Claude Skills**（v0.3）：5 个内置 skill，`goofish skills install` 一行装到 `~/.claude/skills/`
 
 > 架构思想来自 [opencli](https://github.com/jackwener/opencli) 的 single-registry 设计。
 
@@ -28,7 +28,7 @@
 
 ## ✨ 核心特性
 
-- 🔐 **13 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发 + 会话列表
+- 🔐 **16 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发 + 会话列表、skills 安装
 - 📡 **真·实时 IM**：WebSocket 长连 + 自动重连 + **三类事件分类输出**
   - `event=message`（收到消息）· `event=read`（已读回执）· `event=new_msg`（轻量通知）
 - 🛡 **内置风控护栏**：令牌桶限流（1 写/分钟）+ RGV587 自动熔断
@@ -55,6 +55,41 @@ goofish auth status
 goofish item get 1045171414271
 goofish message watch                               # 实时接收消息
 goofish message send <cid> <toid> --text "在的"    # 发消息
+```
+
+---
+
+## 🧩 Claude Skills（v0.3 新增）
+
+v0.3 起内置 5 个 Claude Skill，装完之后 Claude Code / Cursor 里的 Agent 在识别到
+闲鱼任务就会自动加载对应 skill 的知识库，**不再靠 zero-shot 试错**。
+
+```bash
+# 装到 ~/.claude/skills/（默认）
+goofish skills install
+
+# 或者只看有哪些 skill，不拷贝
+goofish skills install --list
+
+# 或者装到自定义目录 + 覆盖已有的
+goofish skills install --dest ./skills --force
+```
+
+### 5 个 skill 分工
+
+| Skill | 什么时候激活 | 核心能力 |
+|---|---|---|
+| `goofish-overview` | 用户首次提闲鱼 / 问这工具能干啥 | 总入口，dispatch 到其他 4 个 skill |
+| `goofish-publish-item` | 发商品 / 上架 / 挂闲置 | 类目识别 → 标题 5 段式 → 风控扫描 → 图片检查 → 确认发布 |
+| `goofish-reply-buyer` | 回消息 / 看未读 / 议价 | 拉未读 → 意图 5 分类 → 议价三档（小刀/大刀/屠龙刀）→ 用户确认发送 |
+| `goofish-risk-guard` | 发布前 / 发送前 / 被限流了 | 违禁词表、外联词正则、发布红线、x5sec 恢复指引（被其他 skill 频繁引用） |
+| `goofish-shop-diagnosis` | 店铺没流量 / 曝光掉了 | 买家视角搜索 + 历史对比 → 归因清单 + 修复建议（纯读不写） |
+
+skill 的源文件在仓库的 `skills/` 目录下（每个 skill 一个子目录，含 `SKILL.md`
++ `references/*.md` 知识库）。也可以走 Claude Code Plugin Marketplace 安装：
+
+```bash
+claude /plugin marketplace add fancyboi999/goofish-cli
 ```
 
 ---
@@ -207,10 +242,12 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 - [x] v0.1：12 个命令 + MCP + IM 三类事件
 - [x] v0.2：`goofish message list-chats`（会话列表 + sessionType 分类：1 真人 / 3 系统 / 6 互动 / 23 通知；`--watch-secs` 支持合并 WS `ackDiff(pts=0)` 历史推送补齐 h5 接口漏掉的会话）
 - [x] v0.2：浏览器自动化链路（吸纳 [OpenCLI](https://github.com/jackwener/opencli) 精华）—— Playwright + 系统 Chrome 驱动 `goofish search items` / `goofish item view`，抗风控 & 完整字段
-- [ ] v0.2：`goofish message create-chat`（主动与陌生用户建会话）
-- [ ] v0.2：Claude Skills 包装（`skills/` 目录）
-- [ ] v0.3：`goofish order`（订单状态查询 / 发货）
-- [ ] v0.3：支持发视频消息
+- [x] v0.2.3 / v0.2.4：session 自动续命（passport 快速进入）+ `auth login --qr` 扫码兜底
+- [x] v0.3：Claude Skills 包装（5 个 skill：overview / risk-guard / publish-item / reply-buyer / shop-diagnosis）+ `goofish skills install`
+- [ ] v0.4：`goofish message create-chat`（主动与陌生用户建会话）
+- [ ] v0.4：`goofish order`（订单状态查询 / 发货）
+- [ ] v0.4：历史数据落盘（SQLite / JSONL），给 shop-diagnosis 做时序归因
+- [ ] v0.5：支持发视频消息
 
 ---
 
