@@ -29,6 +29,13 @@ from loguru import logger
 # 我们分别拉一遍后合并。
 GOOFISH_DOMAINS = ("goofish.com", "taobao.com")
 
+# cookie 入库前的域名白名单。in-process 和 subprocess 两条路径都用这个常量，
+# 保证两条路径筛出的字段集一致（避免漂移导致同一浏览器两次抽取结果不同）。
+ALLOWED_HOSTS = (
+    "goofish.com", "taobao.com", "tmall.com",
+    "alibaba.com", "alicdn.com", "aliyun.com", "mmstat.com",
+)
+
 # 至少要拿到这些字段才算"登录态有效"
 REQUIRED_KEYS = ("unb", "_m_h5_tk")
 
@@ -75,12 +82,13 @@ def _get_loader(browser: str):
 # ── 单个浏览器的 in-process / subprocess 双路 ────────────────────────────
 
 def _extract_in_process(browser: str) -> dict[str, str] | None:
-    """直接 import browser_cookie3 调 loader。"""
-    try:
-        loader = _get_loader(browser)
-    except (ImportError, BrowserCookieError) as e:
-        logger.trace(f"{browser} in-process loader 获取失败：{e}")
-        return None
+    """直接 import browser_cookie3 调 loader。
+
+    注意：对 `BrowserCookieError`（未知浏览器名）会直接 re-raise，让调用方
+    区分"浏览器不认识"和"浏览器没登录态"两种情况——不然用户传 --browser foobar
+    会得到误导性的"没找到有效登录态"。
+    """
+    loader = _get_loader(browser)  # 未知浏览器 → re-raise
 
     try:
         jars = [loader(domain_name=domain) for domain in GOOFISH_DOMAINS]
@@ -93,7 +101,11 @@ def _extract_in_process(browser: str) -> dict[str, str] | None:
 
 def _extract_via_subprocess(browser: str) -> dict[str, str] | None:
     """fork 子进程跑 browser_cookie3。macOS Keychain 对主进程和子进程的
-    授权作用域有时不一致，子进程兜底能救一些 Edge Case（也是 xhs-cli 的做法）。"""
+    授权作用域有时不一致，子进程兜底能救一些 Edge Case（也是 xhs-cli 的做法）。
+
+    allowed_hosts 通过 argv 传进子进程，和 _jars_to_dict 用同一个常量，避免
+    两条路径筛出的字段集漂移。
+    """
     script = '''
 import json, sys
 try:
@@ -101,8 +113,9 @@ try:
 except ImportError:
     print(json.dumps({"error": "browser-cookie3-not-installed"})); sys.exit(0)
 
-browser = sys.argv[1]
-domains = sys.argv[2].split(",")
+browser, domains_csv, hosts_csv = sys.argv[1], sys.argv[2], sys.argv[3]
+domains = domains_csv.split(",")
+hosts = hosts_csv.split(",")
 loader = getattr(bc3, browser, None)
 if not loader or not callable(loader):
     print(json.dumps({"error": f"unknown-browser:{browser}"})); sys.exit(0)
@@ -112,7 +125,7 @@ for d in domains:
     try:
         for c in loader(domain_name=d):
             host = (c.domain or "").lstrip(".")
-            if any(h in host for h in ("goofish.com", "taobao.com", "tmall.com", "alibaba.com", "alicdn.com", "aliyun.com")):
+            if any(h in host for h in hosts):
                 out[c.name] = c.value
     except Exception as e:
         print(json.dumps({"error": f"extract-fail:{e}"})); sys.exit(0)
@@ -120,7 +133,12 @@ print(json.dumps({"cookies": out}))
 '''
     try:
         result = subprocess.run(
-            [sys.executable, "-c", script, browser, ",".join(GOOFISH_DOMAINS)],
+            [
+                sys.executable, "-c", script,
+                browser,
+                ",".join(GOOFISH_DOMAINS),
+                ",".join(ALLOWED_HOSTS),
+            ],
             capture_output=True,
             text=True,
             timeout=15,
@@ -148,15 +166,11 @@ print(json.dumps({"cookies": out}))
 
 def _jars_to_dict(jars: list[Any]) -> dict[str, str]:
     """从多个 CookieJar 合并筛出阿里系域 cookie。"""
-    allowed_hosts = (
-        "goofish.com", "taobao.com", "tmall.com",
-        "alibaba.com", "alicdn.com", "aliyun.com", "mmstat.com",
-    )
     out: dict[str, str] = {}
     for jar in jars:
         for cookie in jar:
             host = (cookie.domain or "").lstrip(".")
-            if not any(h in host for h in allowed_hosts):
+            if not any(h in host for h in ALLOWED_HOSTS):
                 continue
             # 同名后写覆盖前 —— 这里没法判优先级，实测取到 unb/_m_h5_tk 都 OK
             out[cookie.name] = cookie.value
@@ -164,8 +178,16 @@ def _jars_to_dict(jars: list[Any]) -> dict[str, str]:
 
 
 def _try_browser(browser: str) -> dict[str, str] | None:
-    """顺序走 in-process → subprocess。任一路径拿到 REQUIRED_KEYS 就返回。"""
-    cookies = _extract_in_process(browser)
+    """顺序走 in-process → subprocess。任一路径拿到 REQUIRED_KEYS 就返回。
+
+    包住 _extract_in_process 的 BrowserCookieError —— auto 模式下反射出的
+    名字肯定存在，不会触发；指定 browser 模式由 extract_goofish_cookies
+    先校验，也不会到这。兜底：万一进来了就当成"该浏览器没有"。
+    """
+    try:
+        cookies = _extract_in_process(browser)
+    except BrowserCookieError:
+        cookies = None
     if cookies and _is_valid(cookies):
         return cookies
     cookies = _extract_via_subprocess(browser)
@@ -194,8 +216,11 @@ def extract_goofish_cookies(
       - 具体浏览器名（chrome / edge / brave / safari / firefox / ...）
 
     REQUIRED_KEYS 缺失 → 抛 BrowserCookieError，由上层转成 AuthRequiredError。
+    未知浏览器名 → 直接抛 BrowserCookieError（不当成"没登录态"误导用户）。
     """
     if browser != "auto":
+        # 先做一次名字校验，让"浏览器名不对"和"没登录态"报错分开
+        _get_loader(browser)
         cookies = _try_browser(browser)
         if cookies:
             return browser, cookies
@@ -211,8 +236,12 @@ def extract_goofish_cookies(
             "请确认安装：`pip install browser-cookie3`。"
         )
 
-    # 并发试所有浏览器，FIRST_COMPLETED 拿到就 cancel 其他
-    with ThreadPoolExecutor(max_workers=min(max_workers, len(browsers))) as pool:
+    # 并发试所有浏览器，拿到第一个成功的立刻返回。
+    # 不用 `with ThreadPoolExecutor(...) as pool` —— 退出 with 时会 shutdown(wait=True)，
+    # 让 return 等所有浏览器跑完（即使 cancel 过），违背 FIRST_COMPLETED 的初衷。
+    # 手动管理 + cancel_futures=True 才能真正快速返回。
+    pool = ThreadPoolExecutor(max_workers=min(max_workers, len(browsers)))
+    try:
         future_to_browser = {pool.submit(_try_browser, b): b for b in browsers}
         pending = set(future_to_browser)
         while pending:
@@ -220,10 +249,11 @@ def extract_goofish_cookies(
             for fut in done:
                 cookies = fut.result()
                 if cookies:
-                    # 拿到就返回；其它线程让它们自己跑完（cancel 对正在执行的 future 无效）
-                    for p in pending:
-                        p.cancel()
+                    pool.shutdown(wait=False, cancel_futures=True)
                     return future_to_browser[fut], cookies
+    finally:
+        # 无论成功与否，确保 pool 不会让调用者 hang 住
+        pool.shutdown(wait=False, cancel_futures=True)
 
     tried = ", ".join(browsers)
     raise BrowserCookieError(
