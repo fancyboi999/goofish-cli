@@ -34,6 +34,11 @@ HOME_URL = "https://www.goofish.com"
 # 强鉴权页，goto 后服务端必须下发完整 session cookie（cookie2/sgcookie/_tb_token_）
 AUTH_PROBE_URL = "https://www.goofish.com/bought"
 
+# 刷新成功的必需字段：`_m_h5_tk`（h5 签名）和 `unb`（用户 id）是任何请求都要的；
+# `cookie2` 是真正的 session token —— 光有 _m_h5_tk/unb 没有 cookie2 仍会被
+# 服务端判定 SESSION_EXPIRED。所以"刷新成功"必须见到 cookie2 被下发。
+_REQUIRED_FRESH_COOKIES = ("_m_h5_tk", "unb", "cookie2")
+
 
 async def _try_quick_enter(page: Any) -> bool:
     """闲鱼首页若弹 passport 登录框，点'快速进入'走免密记忆登录。
@@ -50,7 +55,8 @@ async def _try_quick_enter(page: Any) -> bool:
         logger.debug("[refresh] alibaba-login-box iframe content_frame 未就绪")
         return False
     try:
-        await frame.wait_for_load_state("domcontentloaded")
+        # 显式 timeout：Playwright 默认 30s 太长，会让整个 refresh 流程卡住
+        await frame.wait_for_load_state("domcontentloaded", timeout=5000)
         # 给 iframe 里的 Vue/React 组件一点时间 mount
         await page.wait_for_timeout(800)
         await frame.get_by_text("快速进入", exact=True).first.click(timeout=5000)
@@ -73,11 +79,14 @@ async def _refresh_async(cookies: dict[str, str]) -> dict[str, str]:
         # 给弹窗 + mtop h5 sign 一些时间渲染
         await page.wait_for_timeout(1500)
 
-        await _try_quick_enter(page)
+        # 有弹窗但"快速进入"不可用 → 浏览器免密记忆彻底失效，后续 goto /bought
+        # 也只会被跳登录页。直接返回空 dict 让上层报原始 AuthRequiredError，
+        # 避免返回"只更新了 _m_h5_tk 但 session 仍失效"的假成功 cookies。
+        if not await _try_quick_enter(page):
+            return {}
 
         # 访问强鉴权页，触发服务端下发完整 session cookies（cookie2 / sgcookie /
-        # _tb_token_ 会被 Set-Cookie 刷新）。即便 /bought 被拦下（未登录降级跳转），
-        # 我们返回 False 的判定仍由调用方对比必需字段完成。
+        # _tb_token_ 会被 Set-Cookie 刷新）。
         try:
             await page.goto(AUTH_PROBE_URL, wait_until="domcontentloaded", timeout=15000)
             await page.wait_for_timeout(1500)
@@ -106,8 +115,12 @@ def refresh_cookies_via_browser(session: Session, *, persist: bool = True) -> bo
         logger.warning(f"用 Playwright 刷 cookie 失败：{e}")
         return False
 
-    if "_m_h5_tk" not in fresh or "unb" not in fresh:
-        logger.warning(f"刷 cookie 后仍缺关键字段，跳过合并（拿到 {len(fresh)} 个 cookie）")
+    missing = [k for k in _REQUIRED_FRESH_COOKIES if k not in fresh]
+    if missing:
+        logger.warning(
+            f"刷 cookie 后仍缺关键字段 {missing}（可能'快速进入'未成功或 session 未下发），"
+            f"跳过合并（拿到 {len(fresh)} 个 cookie）"
+        )
         return False
 
     # 关键：直接 `update(fresh)` 会造成跨 domain 同名 cookie 并存（如 .goofish.com 下

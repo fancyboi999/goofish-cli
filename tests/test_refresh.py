@@ -74,7 +74,7 @@ def test_refresh_respects_custom_cookie_path(tmp_path, monkeypatch):
     monkeypatch.setenv("GOOFISH_COOKIES_PATH", str(custom))
 
     session = _make_session({"_m_h5_tk": "old", "unb": "u1"})
-    fresh = {"_m_h5_tk": "new", "unb": "u1"}
+    fresh = {"_m_h5_tk": "new", "unb": "u1", "cookie2": "c"}
     with patch.object(refresh, "asyncio") as mock_async:
         mock_async.run.side_effect = _fake_run(fresh)
         ok = refresh.refresh_cookies_via_browser(session)
@@ -82,6 +82,23 @@ def test_refresh_respects_custom_cookie_path(tmp_path, monkeypatch):
     assert ok is True
     assert custom.exists()
     # 默认路径不应被写
+    assert not (tmp_path / "cookies.json").exists()
+
+
+def test_refresh_fails_when_cookie2_missing(tmp_path, monkeypatch):
+    """cookie2 是真正的 session token，缺它必须判失败（v0.2.3 Copilot review）。"""
+    session = _make_session({"_m_h5_tk": "old", "unb": "u1", "cookie2": "old_c"})
+    monkeypatch.setenv("GOOFISH_COOKIES_PATH", str(tmp_path / "cookies.json"))
+
+    # fresh 有 _m_h5_tk / unb 但无 cookie2 —— 过去会误判成功，现在必须 False
+    fresh = {"_m_h5_tk": "new", "unb": "u1"}
+    with patch.object(refresh, "asyncio") as mock_async:
+        mock_async.run.side_effect = _fake_run(fresh)
+        ok = refresh.refresh_cookies_via_browser(session)
+
+    assert ok is False
+    # 旧 cookie 不能被覆盖
+    assert session.http.cookies.get("_m_h5_tk") == "old"
     assert not (tmp_path / "cookies.json").exists()
 
 
