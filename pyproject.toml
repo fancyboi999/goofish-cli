@@ -30,6 +30,7 @@ dependencies = [
   "tenacity>=8.2",
   "mcp>=1.2",
   "websockets>=13",
+  "browser-cookie3>=0.20",
 ]
 
 [project.optional-dependencies]
