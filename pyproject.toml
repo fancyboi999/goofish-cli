@@ -44,10 +44,14 @@ dev = [
 
 [project.scripts]
 goofish = "goofish_cli.cli:app"
-# MCP server 入口 —— 名字与 package 名一致，这样 `uvx goofish-cli` 即可拉起（uvx 默认
-# 按 command 名查包，和 scripts 名对齐就不用 --from 绕弯）。保留 goofish-mcp 作为 legacy
-# 别名兼容 v0.2.0 下已配置的用户。
+# MCP server 入口。名字与 package 名一致，`uvx goofish-cli` 可直接拉起（uvx 默认按
+# command 名查包，和 scripts 名对齐就不用 --from 绕弯）。这是 Claude Code 等 AI Agent
+# 配 MCP 时的推荐写法。
 goofish-cli = "goofish_cli.mcp_server:main"
+# 保留 `goofish-mcp` 别名只在 **本包已装** 时可用（`pip install goofish-cli` /
+# `uv tool install goofish-cli` / `uvx --from goofish-cli goofish-mcp`）。单独的
+# `uvx goofish-mcp` 仍会因 PyPI 无同名包解析失败 —— 这不是别名能救的，Claude Code
+# MCP 配置必须用上面的 `uvx goofish-cli`。
 goofish-mcp = "goofish_cli.mcp_server:main"
 
 [project.urls]

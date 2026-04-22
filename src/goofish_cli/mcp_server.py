@@ -1,13 +1,20 @@
 """FastMCP 入口。扫描同一 registry → 每个 Command 注册为 @mcp.tool()。
 
-启动：`uvx goofish-cli`（推荐）或 `python -m goofish_cli.mcp_server`。
-`goofish-mcp` 是 legacy 别名，也指向这里。
-Claude Code 配置:
+启动（推荐）：`uvx goofish-cli`  —— uvx 按 command 名找包，`goofish-cli` 匹配 PyPI
+包名，一行搞定。Claude Code 配置:
+
   {
     "mcpServers": {
       "goofish": { "command": "uvx", "args": ["goofish-cli"] }
     }
   }
+
+其他入口（仅在 `goofish-cli` 包已装到某 env 时可用）：
+  - `python -m goofish_cli.mcp_server`
+  - `goofish-mcp`（pip / uv tool install 后可用；或 `uvx --from goofish-cli goofish-mcp`）
+
+注意：`uvx goofish-mcp` 单写会因 PyPI 无同名包而解析失败——不是别名能救的，这是 uvx
+按 command 名查包的默认行为决定的。
 """
 from __future__ import annotations
 

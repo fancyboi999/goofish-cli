@@ -9,9 +9,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 ## [0.2.1] - 2026-04-22
 
 ### Changed
-- MCP script entry 新增 `goofish-cli`（与 package 名一致），这样 `uvx goofish-cli` 即可
-  直接拉起 MCP server——`uvx goofish-mcp` 会因为 PyPI 上没有 `goofish-mcp` 这个包而解析失败。
-  `goofish-mcp` 作为 legacy 别名保留，已配置的用户不受影响。
+- MCP script entry 新增 `goofish-cli`（与 package 名一致），`uvx goofish-cli` 即可直接拉起
+  MCP server。Claude Code 等 AI Agent 的 MCP 配置应使用这个入口。`goofish-mcp` 作为
+  次级入口保留，但只在本包已装到某 env 时可用（`pip install goofish-cli` /
+  `uv tool install goofish-cli` / `uvx --from goofish-cli goofish-mcp`）——单写
+  `uvx goofish-mcp` 仍会因 PyPI 无同名包解析失败。
 - `goofish_cli.__version__` 改为从 `importlib.metadata` 动态读取 package 版本，避免和
   `pyproject.toml` 的 `version` 字段 drift（之前硬编码在 `__init__.py` 里，0.2.0 忘了同步）。
 
