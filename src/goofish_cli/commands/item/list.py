@@ -11,6 +11,7 @@ from goofish_cli.core.mtop import call
 
 MAX_LIMIT = 100
 DEFAULT_PAGE_SIZE = 20
+MAX_PAGES = 50  # 翻页硬上限，配合"本页无新增即退出"防止 nextPage 恒真时死循环
 
 
 def _normalize_limit(value: Any) -> int:
@@ -19,13 +20,6 @@ def _normalize_limit(value: Any) -> int:
     except (TypeError, ValueError):
         return DEFAULT_PAGE_SIZE
     return min(MAX_LIMIT, max(1, n))
-
-
-def _item_id_from_url(url: str) -> str:
-    import re
-
-    m = re.search(r"[?&]id=(\d+)", url or "")
-    return m.group(1) if m else ""
 
 
 STATUS_MAP = {"0": "在售", "1": "已下架"}
@@ -44,6 +38,8 @@ def _extract_item(card_data: dict[str, Any]) -> dict[str, Any]:
     pic_info = card_data.get("picInfo") or {}
     image_url = pic_info.get("picUrl", "")
     # itemLabelDataVO 标签：labelData → r3/r2/... → tagList → data.content
+    # 只取 type=="text" 的文案标签；type=="img" 的 content 是图标 key
+    #（如 freeShippingIcon）而非给人看的文案，跳过。
     labels = []
     label_vo = card_data.get("itemLabelDataVO") or {}
     if isinstance(label_vo, dict):
@@ -51,8 +47,11 @@ def _extract_item(card_data: dict[str, Any]) -> dict[str, Any]:
         for _region, region_data in label_data.items():
             for tag in (region_data.get("tagList") if isinstance(region_data, dict) else []) or []:
                 tag_data = tag.get("data") if isinstance(tag, dict) else None
-                if isinstance(tag_data, dict) and tag_data.get("content"):
-                    labels.append(tag_data["content"])
+                if not isinstance(tag_data, dict) or tag_data.get("type") == "img":
+                    continue
+                content = tag_data.get("content")
+                if content:
+                    labels.append(content)
     return {
         "item_id": item_id,
         "title": title,
@@ -75,9 +74,16 @@ def list_items(limit: int = 50) -> dict[str, Any]:
     n = _normalize_limit(limit)
 
     items: list[dict[str, Any]] = []
+    seen: set[str] = set()
     page_number = 1
 
-    while len(items) < n:
+    def _add(card_data: dict[str, Any]) -> None:
+        item = _extract_item(card_data)
+        if item["item_id"] and item["item_id"] not in seen:
+            seen.add(item["item_id"])
+            items.append(item)
+
+    while len(items) < n and page_number <= MAX_PAGES:
         raw = call(
             session,
             api="mtop.idle.web.xyh.item.list",
@@ -91,24 +97,20 @@ def list_items(limit: int = 50) -> dict[str, Any]:
             spm_cnt="a21ybx.item.0.0",
         )
         data = raw.get("data", {}) or {}
+        before = len(items)
 
-        # 置顶商品（仅首页）
+        # 置顶商品（仅首页；可能与 cardList 重复，靠 seen 去重）
         if page_number == 1:
             top = data.get("topItem")
-            if top and isinstance(top, dict):
-                top_data = top.get("cardData") or top
-                item = _extract_item(top_data)
-                if item["item_id"]:
-                    items.append(item)
+            if isinstance(top, dict) and top:
+                _add(top.get("cardData") or top)
 
         # 普通列表
         for card in data.get("cardList") or []:
-            card_data = card.get("cardData") or card
-            item = _extract_item(card_data)
-            if item["item_id"]:
-                items.append(item)
+            _add(card.get("cardData") or card)
 
-        if not data.get("nextPage"):
+        # 本页没新增任何商品 → 防御性退出，避免 nextPage 恒真时死循环
+        if len(items) == before or not data.get("nextPage"):
             break
         page_number += 1
 
@@ -122,6 +124,5 @@ def list_items(limit: int = 50) -> dict[str, Any]:
 
 __test__ = {
     "_normalize_limit": _normalize_limit,
-    "_item_id_from_url": _item_id_from_url,
     "_extract_item": _extract_item,
 }

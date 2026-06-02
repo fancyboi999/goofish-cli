@@ -26,26 +26,6 @@ def test_normalize_limit_non_int_defaults():
     assert t["_normalize_limit"]("") == 20
 
 
-# ── _item_id_from_url ─────────────────────────────────────
-
-
-def test_item_id_from_url_valid():
-    assert t["_item_id_from_url"]("https://www.goofish.com/item?id=123456") == "123456"
-    assert t["_item_id_from_url"]("/item?id=999&id=888") == "999"
-
-
-def test_item_id_from_url_no_id():
-    assert t["_item_id_from_url"]("https://www.goofish.com/personal") == ""
-
-
-def test_item_id_from_url_empty():
-    assert t["_item_id_from_url"]("") == ""
-
-
-def test_item_id_from_url_none():
-    assert t["_item_id_from_url"](None) == ""
-
-
 # ── _extract_item ──────────────────────────────────────────
 
 
@@ -92,3 +72,23 @@ def test_extract_item_status_offline():
     card = {"id": "222", "itemStatus": 1}
     result = t["_extract_item"](card)
     assert result["status"] == "已下架"
+
+
+def test_extract_item_filters_img_label():
+    # 真机复现：type=="img" 的标签 content 是图标 key（freeShippingIcon），
+    # 不是给人看的文案，必须过滤；type=="text" 的保留。
+    card = {
+        "id": "333",
+        "itemLabelDataVO": {
+            "labelData": {
+                "r3": {"tagList": [{"data": {"type": "text", "content": "2人想要"}}]},
+                "r1": {
+                    "tagList": [
+                        {"data": {"type": "img", "content": "freeShippingIcon", "url": "http://x"}}
+                    ]
+                },
+            }
+        },
+    }
+    result = t["_extract_item"](card)
+    assert result["tags"] == ["2人想要"]
