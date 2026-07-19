@@ -1,6 +1,15 @@
 """验 JS 桥接（pyexecjs + goofish_js_version_2.js）能跑通且 deterministic。"""
 from __future__ import annotations
 
+import subprocess
+
+
+def test_import_does_not_patch_global_popen():
+    original_popen = subprocess.Popen
+    from goofish_cli.core import sign  # noqa: F401
+
+    assert subprocess.Popen is original_popen
+
 
 def test_generate_sign_deterministic():
     from goofish_cli.core.sign import generate_sign

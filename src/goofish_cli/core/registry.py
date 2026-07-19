@@ -18,6 +18,7 @@ class Command:
     func: Callable[..., Any]
     strategy: Strategy = Strategy.COOKIE
     columns: list[str] = field(default_factory=list)
+    arguments: list[str] = field(default_factory=list)
     write: bool = False
 
     @property
@@ -35,6 +36,7 @@ def command(
     description: str,
     strategy: Strategy = Strategy.COOKIE,
     columns: list[str] | None = None,
+    arguments: list[str] | None = None,
     write: bool = False,
 ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
     """装饰器：将函数注册为命令。"""
@@ -47,6 +49,7 @@ def command(
             func=func,
             strategy=strategy,
             columns=columns or [],
+            arguments=arguments or [],
             write=write,
         )
         if cmd.full_name in _REGISTRY:

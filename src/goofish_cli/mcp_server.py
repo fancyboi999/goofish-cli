@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import inspect
+import sys
 from typing import Any
 
 from mcp.server.fastmcp import FastMCP
@@ -67,6 +68,15 @@ def _register_one(cmd) -> None:
 
 
 def main() -> None:
+    if sys.stdin.isatty():
+        print(
+            "goofish-cli is an MCP stdio server and cannot be used interactively.\n"
+            "Use `goofish --help` for the command-line interface, or configure "
+            "`uvx goofish-cli` in an MCP client.",
+            file=sys.stderr,
+        )
+        raise SystemExit(2)
+
     _register_all()
     mcp.run()
 

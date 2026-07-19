@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
+from typing import Annotated
 
 import typer
 from loguru import logger
@@ -35,7 +36,15 @@ def _wrap(cmd: Command):
     import functools
     import inspect
 
-    sig = inspect.signature(cmd.func)
+    # Resolve postponed annotations so Typer can honor Annotated metadata such
+    # as the optional positional source used by `auth login`.
+    sig = inspect.signature(cmd.func, eval_str=True)
+    params = []
+    for param in sig.parameters.values():
+        if param.name in cmd.arguments:
+            param = param.replace(annotation=Annotated[param.annotation, typer.Argument()])
+        params.append(param)
+    sig = sig.replace(parameters=params)
 
     @functools.wraps(cmd.func)
     def wrapper(**kwargs):

@@ -33,6 +33,7 @@ from goofish_cli.core.session import DEFAULT_COOKIE_PATH, write_cookies_json
     description="导入登录态（默认从本机浏览器 auto-detect；支持 Chrome/Edge/Brave/Safari/Firefox 等）",
     strategy=Strategy.PUBLIC,
     columns=["source", "path", "unb", "tracknick", "cookies_count"],
+    arguments=["source"],
 )
 def login(
     source: str | None = None,

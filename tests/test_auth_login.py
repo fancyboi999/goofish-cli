@@ -4,7 +4,9 @@ from __future__ import annotations
 import json
 
 import pytest
+from typer.testing import CliRunner
 
+from goofish_cli.cli import app
 from goofish_cli.commands.auth import login as login_mod
 from goofish_cli.core import session as session_mod
 
@@ -72,3 +74,19 @@ def test_file_path_import(fake_target, tmp_path, monkeypatch):
     out = login_mod.login(source=str(src))
     assert out["source"].startswith("file:")
     assert out["unb"] == "U"
+
+
+def test_file_path_is_accepted_as_cli_argument(fake_target, tmp_path):
+    src = tmp_path / "src.json"
+    src.write_text(json.dumps([
+        {"name": "unb", "value": "U"},
+        {"name": "_m_h5_tk", "value": "T_x_1"},
+    ]))
+
+    result = CliRunner().invoke(
+        app,
+        ["auth", "login", str(src), "--format", "json"],
+    )
+
+    assert result.exit_code == 0, result.output
+    assert fake_target.exists()
