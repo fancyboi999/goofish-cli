@@ -7,6 +7,7 @@ import json
 from typing import Any
 
 from goofish_cli.core import Session, Strategy, command
+from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.mtop import call
 
 
@@ -53,12 +54,59 @@ def recommend(
         version="2.0",
         spm_cnt="a21ybx.publish.0.0",
     )
-    predict = (raw.get("data", {}) or {}).get("categoryPredictResult", {}) or {}
+    category = _extract_category(raw)
+    if not category["cat_id"] or not category["cat_name"] or not category["channel_cat_id"]:
+        raise GoofishError(
+            "类目推荐接口未返回可发布的完整类目，已停止发布",
+            raw=raw,
+            hint="请重新获取类目推荐；不要用空类目字段调用发布接口",
+        )
+    category["raw"] = raw
+    return category
+
+
+def _extract_category(raw: dict[str, Any]) -> dict[str, Any]:
+    """兼容旧 categoryPredictResult 与新版 cardList 返回结构。"""
+    data = raw.get("data", {}) or {}
+    predict = data.get("categoryPredictResult", {}) or {}
+    if predict.get("catId") and predict.get("channelCatId"):
+        return _normalize_category(predict)
+
+    candidates: list[dict[str, Any]] = []
+    for card in data.get("cardList", []) or []:
+        card_data = card.get("cardData", {}) or {}
+        if (
+            str(card_data.get("propertyId", "")) != "-10000"
+            and card_data.get("propertyName") != "分类"
+        ):
+            continue
+        candidates.extend(card_data.get("valuesList", []) or [])
+
+    selected = next(
+        (item for item in candidates if str(item.get("isClicked", "")) == "1"),
+        None,
+    )
+    if selected is None and candidates:
+        selected = max(candidates, key=lambda item: float(item.get("score") or 0))
+    return _normalize_category(selected or {})
+
+
+def _normalize_category(category: dict[str, Any]) -> dict[str, Any]:
+    transport = category.get("transportData", {}) or {}
     return {
-        "cat_id": str(predict.get("catId", "")),
-        "cat_name": predict.get("catName", ""),
-        "channel_cat_id": str(predict.get("channelCatId", "")),
-        "tb_cat_id": str(predict.get("tbCatId", "")),
-        "confidence": predict.get("confidence", 0),
-        "raw": raw,
+        "cat_id": str(category.get("catId") or ""),
+        "cat_name": (
+            category.get("catName")
+            or category.get("channelCatName")
+            or category.get("valueName")
+            or ""
+        ),
+        "channel_cat_id": str(
+            category.get("channelCatId") or transport.get("channelCateId") or ""
+        ),
+        "tb_cat_id": str(category.get("tbCatId") or transport.get("tbCatId") or ""),
+        "root_channel_cat_id": str(category.get("channelCat1Id") or ""),
+        "level2_channel_cat_id": str(category.get("channelCat2Id") or ""),
+        "level3_channel_cat_id": str(category.get("channelCat3Id") or ""),
+        "confidence": category.get("confidence", category.get("score", 0)),
     }

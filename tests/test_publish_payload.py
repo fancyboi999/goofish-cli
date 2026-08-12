@@ -1,8 +1,22 @@
 """验证 _build_publish_data 的 payload 构造 —— 关键字段防回归。"""
 
+import importlib
+from contextlib import contextmanager
+from unittest.mock import patch
+
 from goofish_cli.commands.item.publish import _build_publish_data
 
-CAT = {"cat_id": "50106003", "cat_name": "男士毛呢大衣", "channel_cat_id": "126860482", "tb_cat_id": "50025883"}
+publish_module = importlib.import_module("goofish_cli.commands.item.publish")
+
+CAT = {
+    "cat_id": "50106003",
+    "cat_name": "男士毛呢大衣",
+    "channel_cat_id": "126860482",
+    "tb_cat_id": "50025883",
+    "root_channel_cat_id": "126866981",
+    "level2_channel_cat_id": "127292002",
+    "level3_channel_cat_id": "127300001",
+}
 LOC = {
     "division_id": "110105",
     "all": [{
@@ -59,6 +73,9 @@ def test_cat_info_mapped():
     assert cat["catId"] == "50106003"
     assert cat["channelCatId"] == "126860482"
     assert cat["tbCatId"] == "50025883"
+    assert cat["rootChannelCatId"] == "126866981"
+    assert cat["level2ChannelCatId"] == "127292002"
+    assert cat["level3ChannelCatId"] == "127300001"
 
 
 def test_location_mapped():
@@ -68,3 +85,45 @@ def test_location_mapped():
     assert addr["prov"] == "北京"
     assert addr["city"] == "北京"
     assert addr["gps"] == "116.4,39.9"
+
+
+@contextmanager
+def _passthrough_context():
+    yield
+
+
+def test_multi_image_publish_consumes_one_write_token():
+    acquired: list[str] = []
+
+    @contextmanager
+    def fake_acquire(bucket: str):
+        acquired.append(bucket)
+        yield
+
+    uploads = [
+        {"url": f"https://cdn/{index}.png", "width": 100, "height": 100}
+        for index in range(3)
+    ]
+    with (
+        patch.object(publish_module, "acquire", fake_acquire),
+        patch.object(publish_module, "watch", _passthrough_context),
+        patch.object(publish_module.Session, "load", return_value=object()),
+        patch.object(publish_module, "upload", side_effect=uploads),
+        patch.object(publish_module, "recommend", return_value=CAT),
+        patch.object(publish_module, "get_default_location", return_value={}),
+        patch.object(
+            publish_module,
+            "call",
+            return_value={"ret": ["SUCCESS::调用成功"], "data": {"itemId": "123"}},
+        ),
+    ):
+        result = publish_module.publish(
+            title="示例标题",
+            desc="示例描述",
+            images=["1.png", "2.png", "3.png"],
+            price=199,
+        )
+
+    assert acquired == ["item.write"]
+    assert result["ok"] is True
+    assert result["item_id"] == "123"

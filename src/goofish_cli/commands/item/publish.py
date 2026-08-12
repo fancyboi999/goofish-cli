@@ -34,36 +34,37 @@ def publish(
     post_price: float = 0,
     can_self_pickup: bool = True,
 ) -> dict[str, Any]:
-    session = Session.load()
-
-    # 1. 上传图片（每张独立限流）
-    image_infos: list[dict[str, Any]] = []
-    for img_path in images:
-        with acquire("item.write"):
-            r = upload(img_path)
-        image_infos.append({"url": r["url"], "width": r["width"], "height": r["height"]})
-
-    # 2. AI 类目
-    cat = recommend(title, json.dumps(image_infos))
-
-    # 3. 默认地址
-    loc = get_default_location()
-
-    # 4. 发布（最后一步，走熔断）
-    data = _build_publish_data(
-        title=title,
-        desc=desc,
-        image_infos=image_infos,
-        price=price,
-        original_price=original_price,
-        delivery=delivery,
-        post_price=post_price,
-        can_self_pickup=can_self_pickup,
-        cat_info=cat,
-        location=loc,
-    )
-
+    # 一次发布是一笔写事务。上传图片和最终创建共享一个令牌，避免多图商品
+    # 在默认 1 写/分钟下于事务内部触发自我限流。
     with acquire("item.write"), watch():
+        session = Session.load()
+
+        # 1. 上传图片
+        image_infos: list[dict[str, Any]] = []
+        for img_path in images:
+            r = upload(img_path)
+            image_infos.append({"url": r["url"], "width": r["width"], "height": r["height"]})
+
+        # 2. AI 类目
+        cat = recommend(title, json.dumps(image_infos))
+
+        # 3. 默认地址
+        loc = get_default_location()
+
+        # 4. 发布
+        data = _build_publish_data(
+            title=title,
+            desc=desc,
+            image_infos=image_infos,
+            price=price,
+            original_price=original_price,
+            delivery=delivery,
+            post_price=post_price,
+            can_self_pickup=can_self_pickup,
+            cat_info=cat,
+            location=loc,
+        )
+
         raw = call(
             session,
             api="mtop.idle.pc.idleitem.publish",
@@ -148,6 +149,19 @@ def _build_publish_data(
             "prov": first.get("prov", ""),
         }
 
+    item_cat: dict[str, Any] = {
+        "catId": cat_info["cat_id"],
+        "catName": cat_info["cat_name"],
+        "channelCatId": cat_info["channel_cat_id"],
+    }
+    optional_category_fields = {
+        "tbCatId": cat_info.get("tb_cat_id"),
+        "rootChannelCatId": cat_info.get("root_channel_cat_id"),
+        "level2ChannelCatId": cat_info.get("level2_channel_cat_id"),
+        "level3ChannelCatId": cat_info.get("level3_channel_cat_id"),
+    }
+    item_cat.update({key: value for key, value in optional_category_fields.items() if value})
+
     return {
         "freebies": False,
         "itemTypeStr": "b",
@@ -161,12 +175,7 @@ def _build_publish_data(
         "itemPostFeeDTO": post_fee,
         "itemAddrDTO": item_addr,
         "defaultPrice": default_price,
-        "itemCatDTO": {
-            "catId": cat_info["cat_id"],
-            "catName": cat_info["cat_name"],
-            "channelCatId": cat_info["channel_cat_id"],
-            "tbCatId": cat_info["tb_cat_id"],
-        },
+        "itemCatDTO": item_cat,
         "onlyTakeSelf": can_self_pickup,
         "uniqueCode": "1775897582791680",
         "sourceId": "pcMainPublish",
