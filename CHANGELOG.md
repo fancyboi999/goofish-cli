@@ -6,19 +6,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-### Added
-- OpenClaw / ClawHub compatible bundle metadata. The bundle contributes the existing five skills
-  and launches the pinned `goofish-cli` MCP server through `uvx` on OpenClaw 2026.6.1 or newer.
-- OpenClaw package checks covering version alignment, MCP safety filters, package contents, and
-  secret-bearing path exclusions.
-
-### Changed
-- Goofish skills now document both OpenClaw (`goofish__*`) and Claude
-  (`mcp__goofish__*`) MCP tool names.
-- Constrain the MCP Python SDK to the maintained 1.x line. MCP 2.0 removes the
-  `mcp.server.fastmcp` API used by the current server and otherwise breaks clean installs.
-
-## [0.3.0] - 2026-04-22
+## [0.3.0] - 2026-08-19
 
 ### Added
 - **Claude Skills 套件**（5 个 skill，打包进 wheel）：把 goofish-cli 从"给 Agent 用的
@@ -42,12 +30,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **wheel 打包 skills**：hatch `force-include` 把项目根 `skills/` 装进
   `goofish_cli/_bundled_skills/`，运行时用 `goofish_cli.__file__` 拿包路径定位
   （不依赖 namespace package 的 importlib.resources 行为，避免 py 版本差异坑）。
+- **OpenClaw / ClawHub compatible bundle**：用 `.codex-plugin/plugin.json`、`.mcp.json`
+  和 5 个内置 skills 组成 Codex-compatible bundle；OpenClaw 2026.6.1+ 可一次安装 MCP
+  server 与 skills。默认公开 13 个业务 tools，并排除登录、重置风控、长时间 watch 和
+  skills 安装等 4 个需要操作者控制的 tools。
+- **`goofish item list`**：通过 `mtop.idle.web.xyh.item.list` 分页列出当前账号的在售和
+  已下架商品，提取价格、状态、图片和文本标签；后续修复了图片图标 key 泄漏、重复商品、
+  空页继续翻页和异常 `nextPage` 导致的无限循环风险。
+- **OpenClaw 包验证**：检查四处版本对齐、MCP tool filter、archive 文件白名单、敏感内容，
+  并通过 embedded-agent trajectory 验证实际 bundle 工具目录。
 
 ### Changed
 - `pyproject.toml` 新增 `[tool.hatch.build.targets.wheel.force-include]` 和
   `[tool.hatch.build.targets.sdist]` 段。wheel 只 force-include `skills/`（运行时
   `goofish skills install` 唯一需要的资源）；sdist 额外带 `.claude-plugin/` 和
   `README / CHANGELOG / LICENSE`，便于从源码分发时拿到完整元数据。
+- skills 同时记录 OpenClaw (`goofish__*`) 和 Claude (`mcp__goofish__*`) 的 MCP tool 名。
+- MCP Python SDK 约束为 `mcp>=1.2,<2`；2.0 已移除当前 server 使用的
+  `mcp.server.fastmcp`，未迁移前禁止 clean install 静默跨主版本。
+- `goofish-cli` 在交互终端启动时明确提示它是 MCP stdio server；Typer positional metadata
+  只进入 CLI wrapper，pyexecjs 的编码 workaround 也不再全局替换 `subprocess.Popen`。
+
+### Fixed
+- 修复闲鱼登录页改版后 `auth login --qr` 必然超时：入口改为 `/login`，按 passport frame
+  URL 重新定位跨文档导航后的 iframe，并兼容 QR 从 `<canvas>` 改为 `<img>` 的 DOM。
+
+### Security
+- Cookie 文件改为 Fernet 加密存储，使用机器与用户信息派生本地密钥；旧版明文 cookie
+  首次读取时自动迁移为密文。
+- 新增全仓库敏感标识扫描，阻止真实格式的账号、会话、发送者和消息标识进入提交与
+  OpenClaw/ClawHub 发布产物。
 
 ## [0.2.4] - 2026-04-22
 
