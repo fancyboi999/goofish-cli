@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-07
+
+### Added
+- 搜索支持 `goofish search items --pages N`，跨页按商品 ID 去重；默认仍读取一页，
+  `--limit` 控制所有页面的结果总数。返回 `pages_fetched`、`pages_total` 和
+  `stopped_reason`，说明实际翻页数量与停止原因。翻页过程中发生错误或遇到登录阻拦时，
+  保留已经取得的结果。
+
+### Fixed
+- 浏览器导入、JSON 导入、扫码登录和 Cookie 刷新保留 Cookie 的 domain/path，
+  防止同名 Cookie 覆盖或注入到错误域名、路径；兼容旧版扁平 Cookie 数据。
+- 修复 Cookie 刷新在 `persist=False` 时的异常，并保持内存与持久化记录一致。
+- 恢复搜索成功时的结构化返回；仅在首屏没有结果且明确要求登录时重试一次。
+
 ## [0.3.0] - 2026-08-19
 
 ### Added
@@ -182,7 +196,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...v0.2.4
 [0.2.3]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.2...v0.2.3

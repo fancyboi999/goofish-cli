@@ -120,7 +120,7 @@ OpenClaw `2026.6.1` 及以上可把本仓库作为 compatible bundle 加载。�
 openclaw plugins install clawhub:openclaw-goofish
 
 # 登录态由用户在终端初始化，不交给 Agent 覆盖
-uvx --from goofish-cli==0.3.0 goofish auth login --qr
+uvx --from goofish-cli==0.4.0 goofish auth login --qr
 
 openclaw plugins inspect goofish --json
 openclaw gateway restart
