@@ -5,7 +5,7 @@
       "command": "uvx",
       "args": [
         "--from",
-        "goofish-cli==0.3.0",
+        "goofish-cli==0.4.0",
         "goofish-cli"
       ],
       "connectionTimeoutMs": 120000,

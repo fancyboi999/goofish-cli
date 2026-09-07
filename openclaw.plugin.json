@@ -2,7 +2,7 @@
   "id": "goofish",
   "name": "Goofish",
   "description": "ClawHub package identity for the Goofish compatible bundle.",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
