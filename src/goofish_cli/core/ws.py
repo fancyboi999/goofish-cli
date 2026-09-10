@@ -134,6 +134,61 @@ def build_ack(msg: dict[str, Any]) -> dict[str, Any]:
     return ack
 
 
+async def _recv_json(ws: ClientConnection, *, timeout: float) -> dict[str, Any] | None:
+    """收一帧并解析成 dict。超时或非 JSON 返回 None。"""
+    try:
+        raw = await asyncio.wait_for(ws.recv(), timeout=timeout)
+    except TimeoutError:
+        return None
+    try:
+        parsed = json.loads(raw)
+    except (json.JSONDecodeError, TypeError):
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+async def wait_ready(ws: ClientConnection, *, timeout: float = 15.0) -> bool:
+    """等服务端推 `/s/vulcan`，期间对下行帧回 ack。就绪返回 True。
+
+    `/r/` 请求在 `/s/vulcan` 到达之前发出会被服务端以 `code 400` 拒绝。
+    `/reg` 自身返回 200，所以「注册成功」并不代表可以发请求。
+    `list_user_messages()` 一直是等到 `/s/vulcan` 才发 `/r/` 请求；
+    `message send` 缺这一步，导致发送恒被拒。
+    """
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return False
+        frame = await _recv_json(ws, timeout=min(3.0, remaining))
+        if frame is None:
+            continue
+        with suppress(Exception):
+            await ws.send(json.dumps(build_ack(frame)))
+        if frame.get("lwp") == "/s/vulcan":
+            return True
+
+
+async def recv_ack(
+    ws: ClientConnection, mid: str, *, timeout: float = 10.0
+) -> dict[str, Any] | None:
+    """读取 `mid` 对应的响应帧，期间继续对下行推送回 ack。超时返回 None。"""
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + timeout
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            return None
+        frame = await _recv_json(ws, timeout=min(3.0, remaining))
+        if frame is None:
+            continue
+        if (frame.get("headers") or {}).get("mid") == mid:
+            return frame
+        with suppress(Exception):
+            await ws.send(json.dumps(build_ack(frame)))
+
+
 async def send_text(
     ws: ClientConnection, *, myid: str, cid: str, toid: str, text: str
 ) -> str:
