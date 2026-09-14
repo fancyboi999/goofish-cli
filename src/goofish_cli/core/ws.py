@@ -76,7 +76,12 @@ async def register(
 ) -> dict[str, str]:
     """发送 `/reg` + `/r/SyncStatus/ackDiff`，返回两者的 mid 供调用方校验回包。
 
-    发完立即返回：回包由外层 recv 循环消化（`wait_ready` 会按返回的 mid 做校验）。
+    发完立即返回：回包由外层 recv 循环消化。校验在 `wait_ready()` 里按返回的
+    mid 进行，而不是放在这里——`register()` 若自己消费回包，会吃掉
+    `list_user_messages()` 赖以触发请求的 `/s/vulcan` 帧。
+
+    因此目前只有走 `wait_ready()` 的发送路径会校验握手；
+    `list_user_messages()` 与 `run_forever()` 仍是忽略返回值的 fire-and-forget。
     """
     reg_mid = generate_mid()
     reg = {

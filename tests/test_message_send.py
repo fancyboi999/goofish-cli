@@ -191,7 +191,7 @@ class TestCreateChat:
 
     def test_create_chat_without_ack_still_attempts_send(self, patched, monkeypatch):
         """create-chat 没有回包时不应静默中止；发送仍要尝试并被校验。"""
-        monkeypatch.setattr(send_mod, "recv_ack", _passthrough_short_recv_ack)
+        monkeypatch.setattr(send_mod, "recv_ack", _short_recv_ack)
         ws = patched(FakeWS(make_responder(create_code=None)))
         run_send(item_id="item-1")
         assert SEND_LWP in ws.lwps()
@@ -205,10 +205,5 @@ async def _short_wait_ready(ws, *, mids=None, timeout=15.0):
 
 
 async def _short_recv_ack(ws, mid, *, timeout=10.0):
-    from goofish_cli.core.ws import recv_ack
-    return await recv_ack(ws, mid, timeout=0.3)
-
-
-async def _passthrough_short_recv_ack(ws, mid, *, timeout=10.0):
     from goofish_cli.core.ws import recv_ack
     return await recv_ack(ws, mid, timeout=0.3)
