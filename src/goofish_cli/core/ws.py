@@ -24,6 +24,7 @@ import websockets
 from loguru import logger
 from websockets.asyncio.client import ClientConnection
 
+from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.session import Session
 from goofish_cli.core.sign import decrypt, generate_mid, generate_uuid
 from goofish_cli.core.token import IM_APP_KEY, get_access_token
@@ -70,8 +71,14 @@ async def connect(session: Session) -> AsyncIterator[ClientConnection]:
         yield ws
 
 
-async def register(ws: ClientConnection, session: Session, token: str) -> None:
-    """/reg + /r/SyncStatus/ackDiff。发完立即返回，后续由外层 recv 循环消化回包。"""
+async def register(
+    ws: ClientConnection, session: Session, token: str
+) -> dict[str, str]:
+    """发送 `/reg` + `/r/SyncStatus/ackDiff`，返回两者的 mid 供调用方校验回包。
+
+    发完立即返回：回包由外层 recv 循环消化（`wait_ready` 会按返回的 mid 做校验）。
+    """
+    reg_mid = generate_mid()
     reg = {
         "lwp": "/reg",
         "headers": {
@@ -83,14 +90,15 @@ async def register(ws: ClientConnection, session: Session, token: str) -> None:
             "wv": "im:3,au:3,sy:6",
             "sync": "0,0;0;0;",
             "did": session.device_id,
-            "mid": generate_mid(),
+            "mid": reg_mid,
         },
     }
     await ws.send(json.dumps(reg))
     current_ms = int(time.time() * 1000)
+    ack_diff_mid = generate_mid()
     ack_diff = {
         "lwp": "/r/SyncStatus/ackDiff",
-        "headers": {"mid": generate_mid()},
+        "headers": {"mid": ack_diff_mid},
         "body": [
             {
                 "pipeline": "sync",
@@ -105,6 +113,7 @@ async def register(ws: ClientConnection, session: Session, token: str) -> None:
         ],
     }
     await ws.send(json.dumps(ack_diff))
+    return {"reg": reg_mid, "ack_diff": ack_diff_mid}
 
 
 async def heartbeat_loop(ws: ClientConnection, interval: float = 15.0) -> None:
@@ -147,14 +156,27 @@ async def _recv_json(ws: ClientConnection, *, timeout: float) -> dict[str, Any] 
     return parsed if isinstance(parsed, dict) else None
 
 
-async def wait_ready(ws: ClientConnection, *, timeout: float = 15.0) -> bool:
+async def wait_ready(
+    ws: ClientConnection,
+    *,
+    mids: dict[str, str] | None = None,
+    timeout: float = 15.0,
+) -> bool:
     """等服务端推 `/s/vulcan`，期间对下行帧回 ack。就绪返回 True。
 
-    `/r/` 请求在 `/s/vulcan` 到达之前发出会被服务端以 `code 400` 拒绝。
-    `/reg` 自身返回 200，所以「注册成功」并不代表可以发请求。
-    `list_user_messages()` 一直是等到 `/s/vulcan` 才发 `/r/` 请求；
-    `message send` 缺这一步，导致发送恒被拒。
+    `/r/` 请求在 `/s/vulcan` 到达之前发出会被服务端以 `code 400` 拒绝。`/reg`
+    自身返回 200，所以「注册成功」并不代表连接已经可以发请求。
+    `list_user_messages()` 一直是等到 `/s/vulcan` 才发 `/r/` 请求。
+
+    传入 `register()` 返回的 mids 时顺带校验握手回包：
+
+    * `/reg` 非 200 直接抛错 —— 注册失败后继续发送没有意义。
+    * `ackDiff` 非 200 只记警告 —— 实测它恒为 400（与 `pts` 取值无关），而
+      `collect_session_cids()` 用同样的 ackDiff 也拿 400 却工作正常，sync
+      下推照常到达，因此不作为致命错误。
     """
+    reg_mid = (mids or {}).get("reg")
+    ack_diff_mid = (mids or {}).get("ack_diff")
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
@@ -164,6 +186,15 @@ async def wait_ready(ws: ClientConnection, *, timeout: float = 15.0) -> bool:
         frame = await _recv_json(ws, timeout=min(3.0, remaining))
         if frame is None:
             continue
+
+        frame_mid = (frame.get("headers") or {}).get("mid")
+        if reg_mid and frame_mid == reg_mid and frame.get("code") != 200:
+            raise GoofishError(
+                f"IM 注册失败：/reg 返回 code={frame.get('code')}，未发送"
+            )
+        if ack_diff_mid and frame_mid == ack_diff_mid and frame.get("code") != 200:
+            logger.debug("ackDiff rejected with code=%s (non-fatal)", frame.get("code"))
+
         with suppress(Exception):
             await ws.send(json.dumps(build_ack(frame)))
         if frame.get("lwp") == "/s/vulcan":
