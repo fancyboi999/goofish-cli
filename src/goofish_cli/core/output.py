@@ -21,9 +21,31 @@ class Format(StrEnum):
     CSV = "csv"
 
 
+# 命令返回 dict 包 list 时的行数据键，按此优先级提取
+_ROWS_KEYS = ("items", "sessions", "messages", "rows", "results", "list")
+
+
+def _dict_rows(value: Any) -> list[dict[str, Any]] | None:
+    """value 是 dict 列表（含空列表）则原样返回，否则 None。"""
+    if not isinstance(value, list):
+        return None
+    if value and not all(isinstance(v, dict) for v in value):
+        return None
+    return value
+
+
 def _as_rows(data: Any) -> tuple[list[str], list[dict[str, Any]]]:
     if isinstance(data, dict):
-        return list(data.keys()), [data]
+        # {"items": [...], "total": n} 之类的包裹结构：行数据在 items 等键下，
+        # 直接把整个 dict 当单行会渲染出所有列为空的一行。
+        for key in _ROWS_KEYS:
+            rows = _dict_rows(data.get(key))
+            if rows is not None:
+                data = rows
+                break
+        else:
+            # 扁平 dict（auth status / media upload 等）→ 单行
+            return list(data.keys()), [data]
     if isinstance(data, list) and data and isinstance(data[0], dict):
         cols: list[str] = []
         for item in data:
