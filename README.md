@@ -180,7 +180,7 @@ $ goofish list-commands --format table
 | `media upload` | 上传图片到闲鱼 CDN | ✅ |
 | `category recommend` | AI 识别商品类目 | ❌ |
 | `location default` | 获取默认发布地址 | ❌ |
-| `message list-chats` | 拉取会话列表（左栏；`--watch-secs N` 叠加 WS 历史推送补漏） | ❌ |
+| `message list-chats` | 会话列表（默认 HTTP + 短时 WS，补最近消息并按活动时间倒序） | ❌ |
 | `search items` | 搜索闲鱼商品（浏览器路径 Playwright + 系统 Chrome） | ❌ |
 | `item view` | 浏览器视角看商品详情（字段完整，抗风控；`item get` 的姊妹版） | ❌ |
 | `message history` | 拉取会话历史消息 | ❌ |
@@ -188,6 +188,22 @@ $ goofish list-commands --format table
 | `message watch` | 常驻 IM 长连（JSONL 输出） | ❌ |
 
 </details>
+
+会话读取使用真实消息时间，而非会话创建时间：
+
+```bash
+goofish message list-chats --format json
+goofish message history <cid> --limit 20 --timeout 30 --format json
+```
+
+`list-chats` 默认 `--watch-secs 5`，在一个已就绪的连接中补齐真人会话的最近消息页；
+`--watch-secs 0` 关闭 WS 会话发现，结果可能遗漏 HTTP 未返回的会话。
+`--timeout` 限制摘要读取阶段。历史输出保留 `cid`、`message_id` 和毫秒时间 `created_at`，
+`--limit 0` 保留完整翻页行为，其他正数只读最近 N 条。
+
+`metadata_status` 标明摘要是当前、为空、不完整或读取失败；无法确定的时间为 `null`。
+`has_more` 只代表 HTTP 分页，`enumeration_complete=false` 表明短时同步不能证明全部历史会话已覆盖。
+接口契约与异常边界见 [会话同步](docs/conversation-sync.md)。
 
 <details>
 <summary><b><code>goofish auth status</code></b> — 登录态健康检查</summary>

@@ -29,8 +29,8 @@
 
 | 工具 | 用途 | 典型入参 | 备注 |
 |---|---|---|---|
-| `message_list_chats` | 会话列表（左栏） | `limit?, watch_secs?` | session.sync v3.0 是阉割版，默认会启 WebSocket 增量补齐 cid |
-| `message_history` | 某 cid 的历史消息（翻页到底） | `cid` | 拉上下文做意图分类用 |
+| `message_list_chats` | 按最近活动排序的会话摘要 | `fetch_num?, watch_secs?, timeout?` | 默认 5 秒 WS 发现并读取最近消息；检查 metadata_status，不能把 has_more 当全部会话完整性 |
+| `message_history` | 某 cid 的历史消息 | `cid, limit_per_page?, limit?, timeout?` | limit=0 翻页到底；正数只读最近 N 条，保留 message_id/created_at |
 | `message_watch` | 常驻 IM 长连接，事件以 JSONL 输出 | `secs?` | 阻塞式；Skill 里慎用，短连接更合适 |
 | `message_send` | 发消息（text/image） | `cid, text` 或 `cid, image_url, w, h` | **写操作** + 外联词风控 |
 

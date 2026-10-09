@@ -6,6 +6,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- 会话列表默认启用 5 秒 WS 发现，补齐最近消息并按活动时间倒序；
+  缺失时间和未知未读数返回 null，列表完整性与最近消息上下文状态分别说明。
+- 历史消息保留 CID、消息 ID 和创建时间；支持 limit 限定最近条数及 timeout，
+  按服务端消息 ID 去重，缺少 ID 的记录不按正文或时间推断为重复。
+
+### Fixed
+- 单聊结合 userInfo 与 ownerInfo 及当前账号确认对端，避免买卖家角色对换时
+  选到自己；WS 会话的角色信息与消息参加者共同用于身份确认。
+- MCP 输出 schema 与统一的 ok/data 或错误对象一致，避免历史工具返回 list
+  的声明与适配器实际对象冲突。
+- 消息读取在超时、连接失败或分页游标不推进时明确报告失败；列表保留已有
+  结果并标注未完成的摘要，取消时清理连接和心跳。
+
 ## [0.4.0] - 2026-09-07
 
 ### Added

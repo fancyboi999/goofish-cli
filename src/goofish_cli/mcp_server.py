@@ -16,6 +16,7 @@
 注意：`uvx goofish-mcp` 单写会因 PyPI 无同名包而解析失败——不是别名能救的，这是 uvx
 按 command 名查包的默认行为决定的。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -62,7 +63,8 @@ def _register_one(cmd) -> None:
 
     handler.__name__ = tool_name
     handler.__doc__ = doc
-    handler.__signature__ = sig  # type: ignore[attr-defined]
+    # 输入沿用业务签名，输出是适配器的统一包裹，不能声明成业务层的 list。
+    handler.__signature__ = sig.replace(return_annotation=dict[str, Any])  # type: ignore[attr-defined]
 
     mcp.tool(name=tool_name, description=doc)(handler)
 

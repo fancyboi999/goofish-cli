@@ -308,24 +308,22 @@ async def create_chat(ws: ClientConnection, *, myid: str, toid: str, item_id: st
     return mid
 
 
-async def collect_session_cids(
-    session: Session, duration: float = 5.0
-) -> list[dict[str, Any]]:
+async def collect_session_cids(session: Session, duration: float = 5.0) -> list[dict[str, Any]]:
     """连 WS + /reg + ackDiff(pts=0)，收 duration 秒，返回所有 push 到的 session cid。
 
     涵盖两路：
     - `/s/vulcan` 里 `operation.sessionInfo`（历史会话激活事件）
     - `extract_meta_event` 的 `new_msg`（最新未读通知）
 
-    返回字段只有 `cid / session_type / item_id / last_msg_ts / last_msg_id`，
-    **没有** peer_user_id / 昵称 / 消息正文。原因：sessionInfo.extensions.extUserId/
-    itemSellerId 是卖家 ID（在登录账号作为卖家时就是自己），不能无脑当 peer。
-    上游想拿 peer/正文要自己走 `message history <cid>`。
+    返回会话标识、类型、商品、消息时间通知和 owner/extUser 角色参加者。
+    角色字段不能直接当对端，也不包含昵称和消息正文；调用方结合当前账号与
+    最近消息页确认身份。itemSellerId 与 squadName 不用于对端身份推断。
     """
     token = get_access_token(session)
     acc: dict[str, dict[str, Any]] = {}
 
     async with connect(session) as ws:
+        reg_mid = generate_mid()
         reg = {
             "lwp": "/reg",
             "headers": {
@@ -337,7 +335,7 @@ async def collect_session_cids(
                 "wv": "im:3,au:3,sy:6",
                 "sync": "0,0;0;0;",
                 "did": session.device_id,
-                "mid": generate_mid(),
+                "mid": reg_mid,
             },
         }
         await ws.send(json.dumps(reg))
@@ -373,6 +371,8 @@ async def collect_session_cids(
                     msg = json.loads(raw)
                 except json.JSONDecodeError:
                     continue
+                if (msg.get("headers") or {}).get("mid") == reg_mid and msg.get("code") != 200:
+                    raise GoofishError(f"IM 会话发现注册失败：code={msg.get('code')}")
                 with suppress(Exception):
                     await ws.send(json.dumps(build_ack(msg)))
 
@@ -387,9 +387,18 @@ async def collect_session_cids(
                         ext = sess_info.get("extensions") or {}
                         entry = acc.setdefault(cid, {"cid": cid})
                         entry["session_type"] = (
-                            sess_info.get("sessionType") or decoded.get("chatType") or entry.get("session_type", 0)
+                            sess_info.get("sessionType")
+                            or decoded.get("chatType")
+                            or entry.get("session_type", 0)
                         )
                         entry["item_id"] = str(ext.get("itemId") or entry.get("item_id", ""))
+                        entry["participant_user_ids"] = list(
+                            dict.fromkeys(
+                                str(ext[k]).removesuffix("@goofish")
+                                for k in ("ownerUserId", "extUserId")
+                                if ext.get(k)
+                            )
+                        )
                         continue
 
                     # b) new_msg：{"1":"cid@goofish","2":1,"3":msgId,"4":ts}
@@ -401,80 +410,36 @@ async def collect_session_cids(
                         entry["last_msg_ts"] = meta.get("ts", "")
         finally:
             hb.cancel()
+            with suppress(asyncio.CancelledError):
+                await hb
 
     # 统一字段 + 填默认值
     out: list[dict[str, Any]] = []
     for cid, e in acc.items():
-        out.append({
-            "cid": cid,
-            "session_type": int(e.get("session_type") or 0),
-            "item_id": e.get("item_id", "") or "",
-            "last_msg_id": e.get("last_msg_id", ""),
-            "last_msg_ts": e.get("last_msg_ts", ""),
-        })
+        out.append(
+            {
+                "cid": cid,
+                "session_type": int(e.get("session_type") or 0),
+                "item_id": e.get("item_id", "") or "",
+                "last_msg_id": e.get("last_msg_id", ""),
+                "last_msg_ts": e.get("last_msg_ts", ""),
+                "participant_user_ids": e.get("participant_user_ids", []),
+            }
+        )
     return out
 
 
 async def list_user_messages(
-    session: Session, cid: str, limit_per_page: int = 20
+    session: Session,
+    cid: str,
+    limit_per_page: int = 20,
+    limit: int = 0,
+    timeout: float = 30.0,
 ) -> list[dict[str, Any]]:
-    """一次性拉指定会话的历史消息（翻页直到 hasMore=0）。"""
-    token = get_access_token(session)
-    messages: list[dict[str, Any]] = []
-    send_mid = generate_mid()
-    req = {
-        "lwp": "/r/MessageManager/listUserMessages",
-        "headers": {"mid": send_mid},
-        "body": [f"{cid}@goofish", False, 9007199254740991, limit_per_page, False],
-    }
+    """读取历史并保留消息标识与真实时间；limit=0 翻页到底。"""
+    from goofish_cli.core.message_history import read_history
 
-    async with connect(session) as ws:
-        await register(ws, session, token)
-        hb = asyncio.create_task(heartbeat_loop(ws))
-        try:
-            async for raw in ws:
-                try:
-                    msg = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                with suppress(Exception):
-                    await ws.send(json.dumps(build_ack(msg)))
-
-                lwp = msg.get("lwp")
-                if lwp == "/s/vulcan":
-                    await ws.send(json.dumps(req))
-                    continue
-
-                recv_mid = (msg.get("headers") or {}).get("mid", "")
-                if recv_mid != send_mid:
-                    continue
-
-                body = msg.get("body") or {}
-                models = body.get("userMessageModels") or []
-                for um in models:
-                    try:
-                        ext = um["message"]["extension"]
-                        data_b64 = um["message"]["content"]["custom"]["data"]
-                        payload = json.loads(base64.b64decode(data_b64).decode("utf-8"))
-                        messages.insert(0, {
-                            "send_user_id": ext.get("senderUserId", ""),
-                            "send_user_name": ext.get("reminderTitle", ""),
-                            "message": payload,
-                        })
-                    except Exception as e:  # noqa: BLE001
-                        logger.debug(f"parse history item failed: {e}")
-
-                has_more = body.get("hasMore") == 1
-                if has_more:
-                    send_mid = generate_mid()
-                    req["headers"]["mid"] = send_mid
-                    req["body"][2] = body.get("nextCursor")
-                    await ws.send(json.dumps(req))
-                else:
-                    break
-        finally:
-            hb.cancel()
-    return messages
+    return await read_history(session, cid, limit_per_page, limit, timeout)
 
 
 def _decode_one(raw: str) -> dict[str, Any] | None:
