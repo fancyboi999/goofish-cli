@@ -36,5 +36,6 @@ def default(longitude: float = 121.4737, latitude: float = 31.2304) -> dict[str,
         "area": selected.get("area", ""),
         "poi": selected.get("poi", ""),
         "division_id": str(selected.get("divisionId", "")),
+        "selected": selected,
         "all": addrs or [selected],
     }

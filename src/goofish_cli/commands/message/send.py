@@ -14,9 +14,8 @@ from typing import Any, Literal
 
 from goofish_cli.core import Session, Strategy, command
 from goofish_cli.core.errors import GoofishError
-from goofish_cli.core.guard import watch
-from goofish_cli.core.limiter import acquire
 from goofish_cli.core.token import get_access_token
+from goofish_cli.core.write_operation import write_operation
 from goofish_cli.core.ws import (
     connect,
     create_chat,
@@ -49,7 +48,7 @@ def send(
     item_id: str = "",
 ) -> dict[str, Any]:
     session = Session.load()
-    with acquire("message.write"), watch():
+    with write_operation(session, "message.write"):
         return asyncio.run(_send(
             session,
             cid=cid,

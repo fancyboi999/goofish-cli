@@ -1,16 +1,24 @@
-"""风控熔断。检测到 RiskControlError 后写入熔断时间戳，后续请求直接拒绝。"""
+"""账号熔断状态原子持久化；旧共享熔断自然过期，手动重置只改变本机状态。"""
 from __future__ import annotations
 
-import json
+import hashlib
+import math
 import os
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from goofish_cli.core.errors import RiskControlError
+from filelock import FileLock
+
+from goofish_cli.core.errors import GoofishError, RiskControlError
+from goofish_cli.core.local_state import atomic_write, locked_state
 
 STATE_PATH = Path.home() / ".goofish-cli" / "circuit.json"
 DEFAULT_BREAK_MINUTES = 10
+
+
+def _path() -> Path:
+    return Path(os.environ.get("GOOFISH_GUARD_PATH", str(STATE_PATH))).expanduser()
 
 
 def _break_seconds() -> int:
@@ -20,44 +28,53 @@ def _break_seconds() -> int:
         return DEFAULT_BREAK_MINUTES * 60
 
 
-def _load() -> float:
-    if not STATE_PATH.exists():
-        return 0.0
-    try:
-        return float(json.loads(STATE_PATH.read_text()).get("until", 0))
-    except (json.JSONDecodeError, OSError, ValueError):
-        return 0.0
+def _key(account: str) -> str:
+    return hashlib.sha256(account.encode()).hexdigest()
 
 
-def _save(until: float) -> None:
-    STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    STATE_PATH.write_text(json.dumps({"until": until}))
+def _validate(state: dict) -> None:
+    values = state.get("accounts", {})
+    if not isinstance(values, dict) or any(not isinstance(key, str) for key in values):
+        raise GoofishError("熔断状态格式无效，未清空状态")
+    for value in [state.get("until", 0), *values.values()]:
+        if isinstance(value, bool) or not isinstance(value, (float, int)) or not math.isfinite(value):
+            raise GoofishError("熔断时间格式无效，未发起写请求")
 
 
-def check() -> None:
-    until = _load()
-    if until and time.time() < until:
-        remain = int(until - time.time())
-        raise RiskControlError(
-            f"风控熔断中，剩余 {remain}s。触发后自动冷却，可通过 `goofish auth reset-guard` 手动解除。"
-        )
+def check(*, account: str = "") -> None:
+    with locked_state(_path()) as state:
+        _validate(state)
+        until = max(state.get("until", 0), state.get("accounts", {}).get(_key(account), 0))
+        if until and time.time() < until:
+            remain = max(1, int(until - time.time()))
+            raise RiskControlError(f"风控熔断中，剩余 {remain}s。等待冷却或由操作者检查后使用 auth reset-guard。")
 
 
-def trip(reason: str = "") -> None:
-    _save(time.time() + _break_seconds())
+def trip(reason: str = "", *, account: str = "") -> None:
+    with locked_state(_path()) as state:
+        _validate(state)
+        until = time.time() + _break_seconds()
+        if account:
+            state.setdefault("accounts", {})[_key(account)] = until
+        else:
+            state["until"] = until
 
 
 def reset() -> None:
-    if STATE_PATH.exists():
-        STATE_PATH.unlink()
+    path = _path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with FileLock(str(path) + ".lock", timeout=5, mode=0o600):
+        atomic_write(path, {})
 
 
 @contextmanager
-def watch():
-    """包住写操作：命中 RGV587 自动熔断。"""
-    check()
+def watch(*, account: str = ""):
+    check(account=account)
     try:
         yield
-    except RiskControlError:
-        trip()
+    except RiskControlError as exc:
+        try:
+            trip(account=account)
+        except GoofishError:
+            exc.args = (str(exc) + "；本机熔断未能持久化，请停止写入并检查护栏目录",)
         raise

@@ -3,6 +3,7 @@
 from typing import Any
 
 from goofish_cli.core import Session, Strategy, command
+from goofish_cli.core.item_data import normalize_item
 from goofish_cli.core.mtop import call
 
 
@@ -22,13 +23,4 @@ def get(item_id: str) -> dict[str, Any]:
         version="1.0",
         spm_cnt="a21ybx.item.0.0",
     )
-    data = raw.get("data", {}) or {}
-    track = data.get("trackParams", {}) or {}
-    return {
-        "item_id": track.get("id", item_id),
-        "title": track.get("title", ""),
-        "price": track.get("soldPrice") or track.get("price", ""),
-        "seller_nick": track.get("seller_nick", ""),
-        "status": track.get("itemStatus", ""),
-        "raw": raw,
-    }
+    return normalize_item(raw, str(item_id))

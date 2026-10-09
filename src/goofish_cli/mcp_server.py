@@ -27,6 +27,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from goofish_cli.core import GoofishError, iter_commands
+from goofish_cli.core.errors import PartialResultError
 from goofish_cli.core.registry import discover
 
 mcp = FastMCP("goofish")
@@ -58,6 +59,8 @@ def _register_one(cmd) -> None:
         try:
             result = await asyncio.to_thread(cmd.func, **kwargs)
             return {"ok": True, "data": result}
+        except PartialResultError as e:
+            return {"ok": False, "data": e.data, "error": e.error, "message": str(e)}
         except GoofishError as e:
             return {"ok": False, "error_type": type(e).__name__, "message": str(e)}
 

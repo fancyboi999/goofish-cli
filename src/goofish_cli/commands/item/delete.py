@@ -1,9 +1,8 @@
 """item delete — 下架商品。接口 com.taobao.idle.item.delete v1.1（写操作）"""
 
 from goofish_cli.core import Session, Strategy, command
-from goofish_cli.core.guard import watch
-from goofish_cli.core.limiter import acquire
 from goofish_cli.core.mtop import call
+from goofish_cli.core.write_operation import write_operation
 
 
 @command(
@@ -16,7 +15,7 @@ from goofish_cli.core.mtop import call
 )
 def delete(item_id: str) -> dict[str, object]:
     session = Session.load()
-    with acquire("item.write"), watch():
+    with write_operation(session, "item.write"):
         raw = call(
             session,
             api="com.taobao.idle.item.delete",

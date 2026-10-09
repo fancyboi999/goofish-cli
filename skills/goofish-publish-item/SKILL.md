@@ -67,8 +67,8 @@ Claude Code / Cursor 调 `mcp__goofish__<逻辑名>`。frontmatter 的 `allowed-
 ### Step 3 · 类目识别
 
 ```
-调 category_recommend(title=候选标题, images=[首图])
-  → 拿到 catId / catName
+调 category_recommend(title=候选标题, images_json="[]")
+  → 拿到完整类目 DTO；已有上传收据时用 images_json=JSON.stringify(收据数组)
 ```
 
 **结果校验**：
@@ -96,8 +96,8 @@ Claude Code / Cursor 调 `mcp__goofish__<逻辑名>`。frontmatter 的 `allowed-
 ### Step 6 · 图片处理
 
 ```
-for image in images:
-    调 media_upload(image)
+for image in 本地图片路径:
+    调 media_upload(path=image)
     收集返回的 {url, width, height}
 
 检查:
@@ -130,11 +130,15 @@ for image in images:
     title=..., 
     desc=..., 
     price=..., 
-    image_urls=[...],
-    cat_id=..., 
-    addr=...（没有就省略，让服务端用 location_default）
+    images_json=JSON.stringify([{url, width, height}, ...]),
+    category_json=JSON.stringify(category_recommend 的完整 DTO),
+    location_json=JSON.stringify(location_default 的完整 DTO)
 )
 ```
+
+发布也可用 `images=[本地路径, ...]` 自动上传，不能把 CDN URL 当本地路径。已提前上传时复用 `images_json`，避免重复上传。类目 DTO 必须包含 cat_id/cat_name/channel_cat_id/tb_cat_id，地址采用 selected 字段。缺少身份的类目不能猜补。模型分数不是校准概率，未知值为 null。
+
+成功返回 accepted 与 item_id 后，用 item_get 回读确认。失败返回的 images/category/location 可复用；submission_unknown 必须先核对自己的商品列表，禁止盲目重试。发布和下架共用 item.write 默认 1 次/分钟，上传独立 media.write 默认 9 次/分钟。
 
 ## 反模式（不要做）
 
