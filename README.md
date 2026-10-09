@@ -43,6 +43,23 @@
 
 ---
 
+## 特别鸣谢
+
+<p align="center">
+  <a href="https://www.ipwo.net/?ref=githubgoofishcli">
+    <img src="media/ipwo-banner.png" alt="IPWO 住宅代理：稳定连接、全球节点、多协议支持" width="95%">
+  </a>
+</p>
+
+<p align="center">
+  <a href="https://www.ipwo.net/?ref=githubgoofishcli"><ins>IPWO</ins></a> 拥有 9000 万+ 活跃住宅 IP 资源，覆盖 195+ 个国家和地区。<br>
+  提供动态住宅代理、静态住宅代理及不限量住宅代理。<br>
+  适用于网页抓取、数据采集、浏览器自动化、跨境业务等场景。<br>
+  支持<a href="https://www.ipwo.net/?ref=githubgoofishcli"><ins>免费测试</ins></a>，<strong>9 折优惠码：</strong><code>0203</code>
+</p>
+
+---
+
 ## ✨ 核心特性
 
 - 🔐 **17 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发 + 会话列表、skills 安装
