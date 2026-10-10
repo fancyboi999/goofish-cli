@@ -42,6 +42,9 @@ def main() -> None:
     parser.add_argument("--dist", type=Path, required=True)
     parser.add_argument("--existing-only", action="store_true")
     args = parser.parse_args()
+    artifacts = [p for p in args.dist.iterdir() if p.name.endswith((".whl", ".tar.gz"))]
+    if len(artifacts) != 2:
+        raise ValueError("必须验证同一次构建的 wheel 和 sdist")
     for attempt in range(1, 6):
         try:
             try:
@@ -53,9 +56,6 @@ def main() -> None:
                     return
                 raise
             files = {value["filename"]: value for value in data["urls"]}
-            artifacts = [p for p in args.dist.iterdir() if p.name.endswith((".whl", ".tar.gz"))]
-            if len(artifacts) != 2:
-                raise ValueError("必须验证同一次构建的 wheel 和 sdist")
             for artifact in artifacts:
                 if args.existing_only and artifact.name not in files:
                     continue
