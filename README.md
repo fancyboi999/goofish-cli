@@ -134,6 +134,7 @@ claude /plugin marketplace add fancyboi999/goofish-cli
 OpenClaw `2026.6.1` 及以上可把本仓库作为 compatible bundle 加载。已发布到
 [ClawHub](https://clawhub.ai/plugins/openclaw-goofish)，安装：
 
+<!-- x-release-please-start-version -->
 ```bash
 openclaw plugins install clawhub:openclaw-goofish
 
@@ -143,6 +144,7 @@ uvx --from goofish-cli==0.5.0 goofish auth login --qr
 openclaw plugins inspect goofish --json
 openclaw gateway restart
 ```
+<!-- x-release-please-end -->
 
 本地开发无需发布：
 
