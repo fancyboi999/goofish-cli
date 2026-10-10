@@ -6,6 +6,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-10
+
 ### Changed
 - 会话列表默认启用 5 秒 WS 发现，补齐最近消息并按活动时间倒序；
   缺失时间和未知未读数返回 null，列表完整性与最近消息上下文状态分别说明。
@@ -214,7 +216,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - 本版本需要用户手动从浏览器导入 cookie（含 `unb` / `_m_h5_tk` / `x5sec`）
 - 遇到 `RGV587_ERROR` 风控时，需在浏览器完成滑块验证并**重新导出**带 `x5sec` 的 cookie
 
-[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/fancyboi999/goofish-cli/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.4...v0.3.0
 [0.2.4]: https://github.com/fancyboi999/goofish-cli/compare/v0.2.3...v0.2.4
