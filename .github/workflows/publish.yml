@@ -73,6 +73,7 @@ jobs:
         with:
           skip-existing: true
   verify:
+    timeout-minutes: 15
     needs: publish
     runs-on: ubuntu-latest
     steps:

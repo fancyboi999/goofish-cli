@@ -6,6 +6,7 @@ import asyncio
 import hashlib
 import json
 import os
+import re
 import subprocess
 import time
 import urllib.error
@@ -45,22 +46,28 @@ def main() -> None:
     artifacts = [p for p in args.dist.iterdir() if p.name.endswith((".whl", ".tar.gz"))]
     if len(artifacts) != 2:
         raise ValueError("必须验证同一次构建的 wheel 和 sdist")
-    for attempt in range(1, 6):
+    if not re.fullmatch(r"\d+\.\d+\.\d+", args.version):
+        parser.error("version must be stable SemVer")
+    for attempt in range(1, 11):
         try:
-            try:
-                with urllib.request.urlopen(f"https://pypi.org/pypi/goofish-cli/{args.version}/json", timeout=20) as response:
-                    data = json.load(response)
-            except urllib.error.HTTPError as exc:
-                if args.existing_only and exc.code == 404:
-                    print("New PyPI version; no existing artifacts")
-                    return
-                raise
-            files = {value["filename"]: value for value in data["urls"]}
+            request = urllib.request.Request(
+                "https://pypi.org/simple/goofish-cli/",
+                headers={"Accept": "application/vnd.pypi.simple.v1+json", "Cache-Control": "no-cache"},
+            )
+            with urllib.request.urlopen(request, timeout=20) as response:
+                data = json.load(response)
+            wheel_prefix = "goofish_cli-" + args.version + "-"
+            sdists = {"goofish_cli-" + args.version + ".tar.gz", "goofish-cli-" + args.version + ".tar.gz"}
+            files = {value["filename"]: value for value in data["files"]
+                     if value["filename"].startswith(wheel_prefix) or value["filename"] in sdists}
+            if args.existing_only and not files:
+                print("New PyPI version; no existing artifacts")
+                return
             for artifact in artifacts:
                 if args.existing_only and artifact.name not in files:
                     continue
                 remote = files[artifact.name]
-                if remote.get("yanked") or remote["digests"]["sha256"] != hashlib.sha256(artifact.read_bytes()).hexdigest():
+                if remote.get("yanked", False) is not False or remote["hashes"]["sha256"] != hashlib.sha256(artifact.read_bytes()).hexdigest():
                     raise ValueError("PyPI 工件与通过检查的构建产物不一致")
             if set(files) - {p.name for p in artifacts}:
                 raise ValueError("PyPI 存在构建范围外的工件")
@@ -75,7 +82,7 @@ def main() -> None:
         except ValueError:
             raise
         except Exception as exc:
-            if attempt == 5:
+            if attempt == 10:
                 raise
             print(f"PyPI validation attempt {attempt} pending: {type(exc).__name__}", flush=True)
             time.sleep(15)
