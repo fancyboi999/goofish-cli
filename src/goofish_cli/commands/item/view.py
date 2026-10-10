@@ -1,6 +1,6 @@
 """item view — 浏览器视角的商品详情。对标 OpenCLI `xianyu/item.js`。
 
-`item get` 已经在 CLI 里直签调 `mtop.taobao.idle.pc.detail` v1.0，字段浅抽（5 项）。
+`item get` 在 CLI 里直签调 `mtop.taobao.idle.pc.detail` v1.0。
 `item view` 在真实 Chrome 的商品页上下文里调同一 API（走 `window.lib.mtop.request`），
 好处：
 
@@ -105,12 +105,15 @@ _FETCH_JS = r"""
     item_id: clean(item.itemId || itemId),
     title: clean(item.title || ''),
     description: clean(item.desc || ''),
-    price: clean('¥' + (item.soldPrice || item.defaultPrice || '')).replace(/^¥\s*$/, ''),
+    price: item.soldPrice == null || typeof item.soldPrice === 'boolean' || item.soldPrice === ''
+      ? null : '¥' + clean(item.soldPrice),
+    price_kind: item.defaultPrice === true ? 'negotiable' : 'fixed',
     original_price: clean(item.originalPrice || ''),
     want_count: String(item.wantCnt ?? ''),
     collect_count: String(item.collectCnt ?? ''),
     browse_count: String(item.browseCnt ?? ''),
     status: clean(item.itemStatusStr || ''),
+    status_code: item.itemStatus ?? null,
     condition: clean(findLabel('成色')),
     brand: clean(findLabel('品牌')),
     category: clean(findLabel('分类')),

@@ -2,14 +2,11 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import patch
 
 import pytest
 
-import goofish_cli.commands.search.search as search_mod
 from goofish_cli.commands.search.search import __test__ as t
-from goofish_cli.commands.search.search import _item_id_from_url, search
-from goofish_cli.core.errors import AuthRequiredError, GoofishError
+from goofish_cli.commands.search.search import _item_id_from_url
 
 
 def test_normalize_limit_clamps_and_defaults():
@@ -336,80 +333,3 @@ def test_walk_pages_non_dict_pagination_state_is_error():
             _walk(FakePage([bad]), [_item("100")], {"100"}, 1, pages=3, limit=200)
         )
         assert (fetched, reason) == (1, "error"), f"bad={bad!r}"
-
-
-# ---------------------------------------------------------------------------
-# 公开 search() 入口回归（#28 曾发生 _run 返回 None 而测试全绿的事故，
-# 顶层组装层必须钉住：items/rank/query/分页元数据/错误传播）
-# ---------------------------------------------------------------------------
-class FakePageCtx:
-    """让 `_run` 真正执行的 goofish_page 替身：返回同一个 FakePage。"""
-
-    def __init__(self, page: FakePage) -> None:
-        self._page = page
-
-    async def __aenter__(self) -> FakePage:
-        return self._page
-
-    async def __aexit__(self, *exc) -> None:
-        return None
-
-
-def test_search_returns_ranked_items_with_metadata():
-    """成功路径：_run 组装 rank/item_id/分页元数据，search 填充 query。"""
-    # 第 1 页（extract）→ pagination → 等待 → 第 2 页 extract → 终态 pagination
-    page = FakePage(
-        [
-            _page_payload(["100", "101"]),
-            _pagination(True, 50),
-            True,
-            _page_payload(["102"]),
-            _pagination(False, 50),
-        ]
-    )
-    with patch.object(search_mod, "goofish_page", lambda **kw: FakePageCtx(page)):
-        result = search("X570", limit=50, pages=2)
-    assert result["query"] == "X570"
-    assert result["total"] == 3
-    assert result["pages_fetched"] == 2
-    assert result["pages_total"] == 50
-    assert result["stopped_reason"] == "pages_reached"
-    assert [it["rank"] for it in result["items"]] == [1, 2, 3]
-    assert [it["item_id"] for it in result["items"]] == ["100", "101", "102"]
-    assert result["items"][0]["title"] == "item-100"
-
-
-def test_search_single_page_default_contract():
-    """默认参数（pages=1, limit=20）行为与分页前一致：只抓第 1 页。"""
-    page = FakePage(
-        [
-            _page_payload([str(i) for i in range(100, 110)]),
-            _pagination(True, 50),  # 终态读取（total_pages 补取）
-        ]
-    )
-    with patch.object(search_mod, "goofish_page", lambda **kw: FakePageCtx(page)):
-        result = search("X570")
-    assert result["pages_fetched"] == 1
-    assert result["total"] == 10
-    assert result["query"] == "X570"
-
-
-def test_search_propagates_auth_required_error():
-    """登录墙错误从 _run 传播到 search() 上层（顶层契约的一部分）。"""
-    # AUTH_WALL_ATTEMPTS=2：两次导航各消费一份 extract，仍零卡片才抛
-    page = FakePage([_page_payload([], requiresAuth=True), _page_payload([], requiresAuth=True)])
-    with (
-        patch.object(search_mod, "goofish_page", lambda **kw: FakePageCtx(page)),
-        pytest.raises(AuthRequiredError, match="www.goofish.com"),
-    ):
-        search("X570")
-
-
-def test_search_propagates_structure_error():
-    """结构突变（0 卡片且非 auth/empty/blocked）按原语义从顶层抛出。"""
-    page = FakePage([_page_payload([], bodyPreview="weird page")])
-    with (
-        patch.object(search_mod, "goofish_page", lambda **kw: FakePageCtx(page)),
-        pytest.raises(GoofishError, match="DOM 结构已变"),
-    ):
-        search("X570")

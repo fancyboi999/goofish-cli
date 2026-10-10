@@ -16,6 +16,7 @@
 注意：`uvx goofish-mcp` 单写会因 PyPI 无同名包而解析失败——不是别名能救的，这是 uvx
 按 command 名查包的默认行为决定的。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -26,6 +27,7 @@ from typing import Any
 from mcp.server.fastmcp import FastMCP
 
 from goofish_cli.core import GoofishError, iter_commands
+from goofish_cli.core.errors import PartialResultError
 from goofish_cli.core.registry import discover
 
 mcp = FastMCP("goofish")
@@ -57,12 +59,15 @@ def _register_one(cmd) -> None:
         try:
             result = await asyncio.to_thread(cmd.func, **kwargs)
             return {"ok": True, "data": result}
+        except PartialResultError as e:
+            return {"ok": False, "data": e.data, "error": e.error, "message": str(e)}
         except GoofishError as e:
             return {"ok": False, "error_type": type(e).__name__, "message": str(e)}
 
     handler.__name__ = tool_name
     handler.__doc__ = doc
-    handler.__signature__ = sig  # type: ignore[attr-defined]
+    # 输入沿用业务签名，输出是适配器的统一包裹，不能声明成业务层的 list。
+    handler.__signature__ = sig.replace(return_annotation=dict[str, Any])  # type: ignore[attr-defined]
 
     mcp.tool(name=tool_name, description=doc)(handler)
 

@@ -13,7 +13,7 @@ category_recommend(
 )
 ```
 
-返回 `{catId, catName, confidence?}`。
+返回 `{cat_id, cat_name, channel_cat_id, tb_cat_id, confidence, confidence_source}`。confidence 为模型分数，不是校准概率；缺失为 null。
 
 ## 结果处理
 
@@ -75,4 +75,4 @@ category_recommend(
 
 ## 本模块不调其它工具
 
-只调 `category_recommend`。不需要 `item_get` 也不需要反查——API 给的 catId 直接传给 `item_publish` 就够。
+只调 `category_recommend`。不需要 `item_get` 也不需要反查——将完整类目 DTO 作为 category_json 传给 item_publish；缺少 cat_id/channel_cat_id/tb_cat_id 时不得猜补。

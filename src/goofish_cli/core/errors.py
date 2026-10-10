@@ -49,3 +49,13 @@ class EmptyResultError(GoofishError):
 class BlockedError(GoofishError):
     """请求被拦截（验证码页 / 安全验证 / 异常访问）。对标 opencli 的 blocked 分支。"""
     exit_code = 79
+
+
+class PartialResultError(GoofishError):
+    """失败的操作仍有可消费的部分数据，两个入口同时保留数据和失败状态。"""
+
+    def __init__(self, message: str, data: dict, error: dict, *, exit_code: int = 1):
+        super().__init__(message)
+        self.data = data
+        self.error = error
+        self.exit_code = exit_code

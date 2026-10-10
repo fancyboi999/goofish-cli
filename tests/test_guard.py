@@ -26,9 +26,11 @@ def test_reset_clears_circuit(tmp_path, monkeypatch):
     from goofish_cli.core import guard
 
     guard.trip("test")
-    assert guard._load() > 0
+    from goofish_cli.core.errors import RiskControlError
+    with pytest.raises(RiskControlError):
+        guard.check()
     guard.reset()
-    assert guard._load() == 0
+    guard.check()
     # reset 后 watch 不再抛
     with guard.watch():
         pass

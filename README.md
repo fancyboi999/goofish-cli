@@ -66,7 +66,7 @@
 - 🔐 **17 个命令覆盖核心链路**：发布、下架、查询、图片上传、AI 类目识别、默认地址、IM 收发 + 会话列表、skills 安装
 - 📡 **真·实时 IM**：WebSocket 长连 + 自动重连 + **三类事件分类输出**
   - `event=message`（收到消息）· `event=read`（已读回执）· `event=new_msg`（轻量通知）
-- 🛡 **内置风控护栏**：令牌桶限流（1 写/分钟）+ RGV587 自动熔断
+- 🛡 **内置风控护栏**：账号与业务桶限流（经营 1 次/分钟、媒体 9 次/分钟）+ RGV587 自动熔断
 - 🧠 **AI-first I/O**：`--format json/yaml/table/md/csv`，给 LLM 喂 JSON、给人看表格
 - ⚡ **一次定义，三种入口**：CLI / MCP / Skill 共享同一 registry
 - ✅ **真实端到端验证**：每个命令都跑过真实账号
@@ -180,7 +180,7 @@ $ goofish list-commands --format table
 | `media upload` | 上传图片到闲鱼 CDN | ✅ |
 | `category recommend` | AI 识别商品类目 | ❌ |
 | `location default` | 获取默认发布地址 | ❌ |
-| `message list-chats` | 拉取会话列表（左栏；`--watch-secs N` 叠加 WS 历史推送补漏） | ❌ |
+| `message list-chats` | 会话列表（默认 HTTP + 短时 WS，补最近消息并按活动时间倒序） | ❌ |
 | `search items` | 搜索闲鱼商品（浏览器路径 Playwright + 系统 Chrome） | ❌ |
 | `item view` | 浏览器视角看商品详情（字段完整，抗风控；`item get` 的姊妹版） | ❌ |
 | `message history` | 拉取会话历史消息 | ❌ |
@@ -188,6 +188,22 @@ $ goofish list-commands --format table
 | `message watch` | 常驻 IM 长连（JSONL 输出） | ❌ |
 
 </details>
+
+会话读取使用真实消息时间，而非会话创建时间：
+
+```bash
+goofish message list-chats --format json
+goofish message history <cid> --limit 20 --timeout 30 --format json
+```
+
+`list-chats` 默认 `--watch-secs 5`，在一个已就绪的连接中补齐真人会话的最近消息页；
+`--watch-secs 0` 关闭 WS 会话发现，结果可能遗漏 HTTP 未返回的会话。
+`--timeout` 限制摘要读取阶段。历史输出保留 `cid`、`message_id` 和毫秒时间 `created_at`，
+`--limit 0` 保留完整翻页行为，其他正数只读最近 N 条。
+
+`metadata_status` 标明摘要是当前、为空、不完整或读取失败；无法确定的时间为 `null`。
+`has_more` 只代表 HTTP 分页，`enumeration_complete=false` 表明短时同步不能证明全部历史会话已覆盖。
+接口契约与异常边界见 [会话同步](docs/conversation-sync.md)。
 
 <details>
 <summary><b><code>goofish auth status</code></b> — 登录态健康检查</summary>
@@ -245,25 +261,21 @@ $ goofish message send <masked-cid> <masked-user-id> \
 <summary><b><code>goofish item publish</code></b> — 发布商品（含风控护栏）</summary>
 
 ```bash
-$ goofish item publish \
-    --title "男士毛呢大衣 驼色长款" \
-    --desc "全新未拆封 原价 2999 现 999" \
-    --images ./a.png,./b.png \
-    --price 999
+goofish item publish "男士毛呢大衣 驼色长款" \
+    "全新未拆封 原价 2999 现 999" ./a.png ./b.png 999 --format json
 ```
 
-流程：
-1. `media upload` 每张图 → CDN URL + 尺寸
-2. `category recommend` 拿 AI 识别的 catId
-3. `location default` 拿默认地址
-4. `mtop.idle.pc.idleitem.publish` 落库
+流程：上传图片 → 推荐类目 → 默认地址 → 提交。已有上传收据可通过
+`--images-json '[{"url":"https://example.alicdn.com/image.png","width":1024,"height":1024}]'`
+复用，省略本地图片参数；已确认类目和地址分别通过 `--category-json`、`--location-json`
+传入对应工具返回的完整 DTO。
 
-返回：
-```json
-{"ok": true, "itemId": "1046118265141", "status": "published"}
-```
+返回 `item_id`、`status="accepted"` 和 `requires_readback=true`；使用
+`goofish item get <item_id>` 和自己的商品列表确认保存。失败也保留已上传图片和准备信息；
+`submission_unknown` 必须先核对商品列表，不自动重复发布。
 
-**触发令牌桶限流**（1 写/分钟）。高频调用会被本地拒绝，避免被闲鱼风控。
+发布与下架共用账号的 `item.write` 预算，默认 1 次/分钟；媒体上传独立计数，默认
+9 次/分钟。一个多图商品只消耗一次商品预算。
 </details>
 
 ---
@@ -297,7 +309,7 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 | WebSocket 批量 push 全量解码 | 一帧多条消息全部还原，不丢单 |
 | WebSocket 自动重连 | 断线自退避重连，长跑无感知 |
 | 已读回执 / typing / 新消息通知分类 | `/s/sync` 元事件结构化为三类 JSONL |
-| 全局限流 + 风控熔断 | 令牌桶 1 写/分钟 + RGV587 自动熔断 |
+| 全局限流 + 风控熔断 | 账号业务预算 + RGV587 自动熔断 |
 | 单元测试 | 33 个，ruff 零告警 |
 | 包分发 | `pip install goofish-cli` / `uvx goofish-cli` |
 

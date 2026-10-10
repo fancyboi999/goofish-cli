@@ -90,8 +90,7 @@ metadata:
 Agent 在 goofish 任务里请遵守：
 
 1. **任何写操作前先读 `auth_status`**，避免 token 已过期却继续写 → 白忙一场。
-2. **`item_publish / media_upload / message_send` 都有速率限制**（令牌桶
-   1 写/分钟），不要短时间连发。RGV587 触发后需用户手动 `goofish auth reset-guard`。
+2. **`item_publish / media_upload / message_send` 都有速率限制**（账号业务预算），不要短时间连发。RGV587 触发后需用户手动 `goofish auth reset-guard`。
 3. **所有对外发送（发商品、发消息）务必让用户先确认文案**，不要自动提交。
 4. **多步任务中途报状态**：上一步完成了什么、下一步准备做什么。闲鱼任务
    通常是 3-6 步，用户期望有进度感。
