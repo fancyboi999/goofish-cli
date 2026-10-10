@@ -35,7 +35,7 @@ jobs:
     needs: release-ref
     uses: ./.github/workflows/ci.yml
     with:
-      ref: ${{ github.ref }}
+      ref: ${{ github.sha }}
   existing-artifacts:
     needs: checks
     runs-on: ubuntu-latest
@@ -73,6 +73,7 @@ jobs:
         with:
           skip-existing: true
   verify:
+    timeout-minutes: 15
     needs: publish
     runs-on: ubuntu-latest
     steps:

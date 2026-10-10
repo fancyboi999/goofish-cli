@@ -16,9 +16,9 @@ GITHUB_TOKEN 创建的 tag 不会触发另一个 push workflow，所以程序显
 
 `publish.yml` 只接受与元数据一致的稳定版本 tag，并要求该提交属于 main 历史。对应 tag 必须通过 Python 3.11/3.12、lint、敏感标识扫描、版本契约、插件打包检查和构建，才进入上传。手工推 tag 和手工运行 publisher 也受这些检查约束；不能从 main 分支直接运行 publisher 上传。
 
-上传前对照 PyPI 已存在文件的 SHA256；不一致则拒绝。上传使用专用 pypi environment 和 OIDC，无长期 PyPI API token。只有上传 job 有 id-token:write；安装验证 job 没有该权限。
+上传前使用 PyPI 官方 Simple JSON 安装索引，对照已存在文件的 SHA256；不一致则拒绝。上传使用专用 pypi environment 和 OIDC，无长期 PyPI API token。只有上传 job 有 id-token:write；安装验证 job 没有该权限。
 
-上传后从 PyPI 安装精确版本，验证 CLI 版本、MCP 握手和核心工具目录，并对照发布工件哈希。索引尚未可见时有限重试；失败明确保留失败状态，不能把上传成功当成安装验证成功。
+上传后从 PyPI 安装精确版本，验证 CLI 版本、MCP 握手和核心工具目录，并对照发布工件哈希。安装索引尚未可见时最多 10 次有限重试；不将新版本 JSON 路由的 404 当作安装索引可见性；失败明确保留失败状态，不能把上传成功当成安装验证成功。
 
 ## 恢复
 
