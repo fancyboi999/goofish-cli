@@ -56,6 +56,10 @@ clawhub package publish ./openclaw-goofish-<version>.tgz \
 
 "我只是小改" 也不能跳过。参考 [真实验证准则](./docs/architecture.md#验证准则)。
 
+## 版本与发布
+
+PyPI 由程序自动维护版本 PR、验证、合并、生成 tag 并发布；ClawHub 保持手动。触发规则、权限和失败恢复见 [发布流程](docs/releases.md)。新增自动化不能依赖个人 token，也不能跳过 tag、工件哈希或 PyPI 实装验证。
+
 ## 加命令：典型流程
 
 1. 在 `src/goofish_cli/commands/<namespace>/<cmd>.py` 写一个函数

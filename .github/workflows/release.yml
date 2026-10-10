@@ -1,0 +1,90 @@
+name: Automatic PyPI release
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: automatic-pypi-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      actions: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Prepare version and changelog PR
+        id: plan
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          target-branch: main
+          skip-github-release: true
+      - name: Validate generated PR identity
+        if: steps.plan.outputs.pr != ''
+        id: candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR: ${{ steps.plan.outputs.pr }}
+        run: python scripts/release_candidate.py prepare
+      - name: Check out immutable candidate
+        if: steps.candidate.outputs.sha != ''
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ steps.candidate.outputs.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '24'
+      - name: Restrict candidate to release metadata
+        if: steps.candidate.outputs.sha != ''
+        env:
+          RELEASE_BASE_SHA: ${{ steps.candidate.outputs.base }}
+          RELEASE_VERSION: ${{ steps.candidate.outputs.version }}
+        run: python scripts/release_metadata.py --check --base "$RELEASE_BASE_SHA" --tag "v$RELEASE_VERSION"
+      - name: Validate release source
+        run: |
+          pip install uv
+          uv venv
+          uv pip install -e '.[dev]'
+          uv run pytest -q
+          uv run ruff check src tests
+          python scripts/check_sensitive_identifiers.py
+          python scripts/release_metadata.py --check
+          npm test
+      - name: Merge verified metadata PR
+        if: steps.candidate.outputs.sha != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_PR_NUMBER: ${{ steps.candidate.outputs.number }}
+          RELEASE_PR_SHA: ${{ steps.candidate.outputs.sha }}
+          RELEASE_BASE_SHA: ${{ steps.candidate.outputs.base }}
+        run: python scripts/release_candidate.py merge
+      - name: Create release and tag
+        id: publish
+        uses: googleapis/release-please-action@5c625bfb5d1ff62eadeeb3772007f7f66fdcf071 # v4
+        with:
+          target-branch: main
+          skip-github-pull-request: true
+      - name: Dispatch trusted PyPI publisher
+        if: steps.publish.outputs.release_created == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.publish.outputs.tag_name }}
+        run: gh workflow run publish.yml --repo "$GITHUB_REPOSITORY" --ref "$RELEASE_TAG"
