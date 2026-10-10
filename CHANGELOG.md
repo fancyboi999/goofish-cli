@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.5.2](https://github.com/fancyboi999/goofish-cli/compare/v0.5.1...v0.5.2) (2026-10-10)
+
+
+### Bug Fixes
+
+* **ci:** verify PyPI releases through the install index ([#40](https://github.com/fancyboi999/goofish-cli/issues/40)) ([d9dfc78](https://github.com/fancyboi999/goofish-cli/commit/d9dfc78b630175eb031cdbfc7612689e10ff4611))
+
 ## [0.5.1](https://github.com/fancyboi999/goofish-cli/compare/v0.5.0...v0.5.1) (2026-10-10)
 
 
