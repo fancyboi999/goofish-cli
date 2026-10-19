@@ -23,6 +23,27 @@ done
 xdpyinfo -display :1 >/dev/null
 fluxbox >/tmp/fluxbox.log 2>&1 &
 children+=("$!")
+# 此处仅在容器启动时执行，清理异常停止留下的 Chrome 进程锁，不删除 profile。
+rm -f "$HOME/.goofish-cli/desktop-profile/SingletonLock" \
+    "$HOME/.goofish-cli/desktop-profile/SingletonCookie" \
+    "$HOME/.goofish-cli/desktop-profile/SingletonSocket"
+python -m goofish_cli.sandbox.runtime >/tmp/browser.log 2>&1 &
+children+=("$!")
+python - <<'PY'
+import time
+from urllib.request import ProxyHandler, build_opener
+opener = build_opener(ProxyHandler({}))
+deadline = time.monotonic() + 20
+while time.monotonic() < deadline:
+    try:
+        with opener.open("http://127.0.0.1:9222/json/version", timeout=1) as response:
+            if response.status == 200:
+                break
+    except OSError:
+        time.sleep(0.1)
+else:
+    raise SystemExit("Sandbox browser did not become ready")
+PY
 x11vnc -display :1 -forever -shared -nopw -localhost -rfbport 5900 >/tmp/vnc.log 2>&1 &
 children+=("$!")
 websockify --web=/usr/share/novnc 6080 localhost:5900 >/tmp/novnc.log 2>&1 &

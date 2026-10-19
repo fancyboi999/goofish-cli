@@ -12,14 +12,15 @@ passport 页面（`passport.goofish.com/mini_login.htm?...&styleType=vertical`�
 vertical 布局里扫码区和密码区并排，`.qrcode-login` 容器首屏就在 DOM 里——不用切 tab。
 
 流程：
-1. `goofish_page(cookies={})` 开**干净 tmp profile**（否则 passport 会优先走"快速
-   进入"跳过 QR）
+1. 本机用 `goofish_page(cookies={})` 开干净临时 profile；沙箱复用常驻页面，
+   等待新 cookie 或平台账号响应确认，不能把旧 cookie 当作新登录成功
 2. goto `/login` 登录页触发 passport iframe（首页改版后不再自动弹登录框）
 3. 按 URL 轮询 `page.frames` 找 passport frame，等 `.qrcode-login` 渲染 → QR 就绪
 4. 轮询 `context.cookies()`：看见 `_m_h5_tk / unb / cookie2` 全到位说明扫码 +
    手机端确认都过了，抓快照返回
 5. 超时（默认 120s，`GOOFISH_QR_TIMEOUT` 可调）→ 空 dict，上层报 AuthRequiredError
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -84,35 +85,72 @@ async def _login_via_qr_async(timeout: int) -> list[CookieRecord]:
     # 延迟 import——单测环境没装 playwright 也能 import 本模块
     from goofish_cli.core.browser import goofish_page
 
-    # cookies={} 是关键：不传空 dict 会走 Session.load 把现有登录态灌进去，
-    # passport 就优先走"快速进入"跳过 QR，用户看不到扫码界面。
-    async with goofish_page(cookies={}) as page:
-        await page.goto(HOME_URL, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1500)
+    # 本机用空 cookie 打开扫码页；沙箱保留常驻会话，允许平台提供快速进入。
+    sandbox = os.environ.get("GOOFISH_DESKTOP_SANDBOX") == "1"
+    async with goofish_page(cookies={}, persist_session=False) as page:
+        initial = {c["name"]: c["value"] for c in await page.context.cookies()} if sandbox else {}
+        authenticated = asyncio.Event()
+        tasks = set()
 
-        if not await _wait_for_qr(page):
-            return []
+        async def observe(response):
+            from urllib.parse import urlsplit
 
-        logger.info(f"[qr] 请用手机闲鱼 App 扫码登录（{timeout}s 超时）")
+            if urlsplit(response.url).path != "/h5/mtop.taobao.idlemessage.pc.loginuser.get/1.0/":
+                return
+            try:
+                raw = await response.json()
+                if any(
+                    str(value).partition("::")[0] == "SUCCESS" for value in raw.get("ret") or []
+                ):
+                    authenticated.set()
+            except Exception:
+                pass
 
+        def schedule(response):
+            task = asyncio.create_task(observe(response))
+            tasks.add(task)
+            task.add_done_callback(tasks.discard)
+
+        if sandbox:
+            page.on("response", schedule)
         # 轮询 cookies：扫码 → 手机确认 → passport 下发完整 session 一般 < 5s
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            cookies_list = await page.context.cookies()
-            if _has_all_login_cookies(cookies_list):
-                logger.info("[qr] 扫码成功，session cookies 已下发")
-                # 返回 CookieRecord 列表，保留完整的 domain / path（review-3 P1-B）
-                return [
-                    {
-                        "name": c["name"],
-                        "value": c["value"],
-                        "domain": c.get("domain", ""),
-                        "path": c.get("path", "/"),
-                    }
-                    for c in cookies_list
-                    if c.get("name") and c.get("value")
-                ]
-            await asyncio.sleep(1.0)
+        try:
+            await page.goto(HOME_URL, wait_until="domcontentloaded")
+            if not sandbox:
+                await page.wait_for_timeout(1500)
+                if not await _wait_for_qr(page):
+                    return []
+
+            logger.info(f"[qr] 请用手机闲鱼 App 扫码登录（{timeout}s 超时）")
+
+            while time.monotonic() < deadline:
+                cookies_list = await page.context.cookies()
+                flat = {c["name"]: c["value"] for c in cookies_list}
+                confirmed = (
+                    not sandbox
+                    or authenticated.is_set()
+                    or flat.get("cookie2") != initial.get("cookie2")
+                )
+                if _has_all_login_cookies(cookies_list) and confirmed:
+                    logger.info("[qr] 登录已确认，session cookies 已下发")
+                    return [
+                        {
+                            "name": c["name"],
+                            "value": c["value"],
+                            "domain": c.get("domain", ""),
+                            "path": c.get("path", "/"),
+                        }
+                        for c in cookies_list
+                        if c.get("name") and c.get("value")
+                    ]
+                await asyncio.sleep(1.0)
+        finally:
+            if sandbox:
+                page.remove_listener("response", schedule)
+                for task in tasks:
+                    task.cancel()
+                await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.warning(f"[qr] {timeout}s 超时未登录成功")
         return []
@@ -128,9 +166,7 @@ def _resolve_timeout(timeout: int | None) -> int:
     try:
         return int(raw)
     except ValueError:
-        logger.warning(
-            f"GOOFISH_QR_TIMEOUT={raw!r} 不是整数，回退默认 {_DEFAULT_QR_TIMEOUT}s"
-        )
+        logger.warning(f"GOOFISH_QR_TIMEOUT={raw!r} 不是整数，回退默认 {_DEFAULT_QR_TIMEOUT}s")
         return _DEFAULT_QR_TIMEOUT
 
 

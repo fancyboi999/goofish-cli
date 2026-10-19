@@ -11,12 +11,14 @@
 from __future__ import annotations
 
 import contextlib
+import hashlib
 import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
 
 import requests
+from filelock import FileLock, Timeout
 from loguru import logger
 
 from goofish_cli.core.cookie_types import CookieRecord
@@ -156,10 +158,30 @@ def _bootstrap_from_browser() -> tuple[str, list[CookieRecord]]:
 
 def write_cookies_json(path: Path, cookies) -> None:
     """cookies 可为 {name: value} dict 或 list[Record]。"""
+    _replace_cookies(path, cookies)
+
+
+def save_cookies_if_unchanged(path: Path, cookies, expected_digest: str) -> bool:
+    """浏览器回写时拒绝覆盖期间被另一次登录替换的快照。"""
+    return _replace_cookies(path, cookies, expected_digest)
+
+
+def _replace_cookies(path: Path, cookies, expected_digest: str | None = None) -> bool:
+    from .local_state import atomic_write_bytes
+
     records = _coerce_records(cookies) if isinstance(cookies, dict) else cookies
+    path = path.resolve()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(encrypt_cookies(records))
-    path.chmod(0o600)
+    try:
+        with FileLock(str(path) + ".lock", timeout=5, mode=0o600):
+            if expected_digest is not None and (
+                not path.exists() or hashlib.sha256(path.read_bytes()).hexdigest() != expected_digest
+            ):
+                return False
+            atomic_write_bytes(path, encrypt_cookies(records))
+    except Timeout as exc:
+        raise OSError("登录态写入锁超时；原文件保留") from exc
+    return True
 
 
 def _load_or_mint_device_id(unb: str) -> str:

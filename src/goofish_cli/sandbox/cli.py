@@ -295,6 +295,24 @@ def run(ctx: typer.Context):
 
 
 @app.command()
+def browse(
+    item_id: Annotated[str, typer.Option(help="需要人工验证的商品 ID")],
+    timeout: Annotated[int, typer.Option(min=30, max=3600)] = 900,
+):
+    """保留当前详情页，由用户在虚拟桌面完成平台验证。"""
+    _host_only()
+    if not item_id.isdigit():
+        _fail("商品 ID 必须为数字。", 2)
+    info = _require_running()
+    typer.echo(f"请打开 {_viewer(info)} 完成平台验证。", err=True)
+    result = _docker(
+        "exec", CONTAINER, "python", "-m", "goofish_cli.sandbox.interactive",
+        item_id, "--timeout", str(timeout), check=False,
+    )
+    raise typer.Exit(result.returncode)
+
+
+@app.command()
 def mcp():
     """通过 stdio 连接沙箱内 MCP server；客户端使用 goofish sandbox mcp。"""
     _host_only()

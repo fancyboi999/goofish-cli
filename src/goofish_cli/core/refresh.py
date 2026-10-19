@@ -75,7 +75,7 @@ async def _refresh_async(inject: list[dict[str, str]]) -> list[dict[str, str]]:
 
     # 显式传 cookies——让 Playwright context 注入**调用方当前 session** 的登录态，
     # 而不是让 goofish_page 再走一次 Session.load() 从磁盘拉（内存里可能已被改）。
-    async with goofish_page(cookies=inject) as page:
+    async with goofish_page(cookies=inject, persist_session=False) as page:
         await page.goto(HOME_URL, wait_until="domcontentloaded")
         # 给弹窗 + mtop h5 sign 一些时间渲染
         await page.wait_for_timeout(1500)
