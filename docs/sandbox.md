@@ -46,6 +46,8 @@ goofish sandbox stop
 
 使用 uvx 时，命令为 `uvx`，参数为 `["--from", "goofish-cli", "goofish", "sandbox", "mcp"]`。MCP 通过 `docker exec -i` 的 stdio 连接，没有浏览器调试端口或 MCP HTTP 端口。管理命令没有加入业务工具注册表；现有 MCP 工具集合不变。
 
+`sandbox mcp` 应由客户端启动；直接在交互终端执行会提示配置方法并退出。
+
 ## 登录态与升级
 
 登录态、设备标识、限流和熔断状态都位于专属卷 `goofish-sandbox-state`。卷不与宿主机 `~/.goofish-cli` 共享；不会读取或导入日常浏览器的 cookie。cookie 继续使用 CLI 现有加密格式，固定容器 hostname 和用户保证停机、重启及重建后可解密。该卷包含敏感登录信息，应按本机凭证保护；加密机制不是对 Docker 管理员的访问隔离。

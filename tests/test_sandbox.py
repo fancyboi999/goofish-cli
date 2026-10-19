@@ -5,6 +5,7 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import pytest
+import typer
 from typer.testing import CliRunner
 
 from goofish_cli.cli import app
@@ -108,6 +109,14 @@ def test_mcp_transport_has_no_stdout_banner(monkeypatch):
     assert result.exit_code == 0
     assert result.stdout == ""
     assert calls == [("exec", "-i", cli.CONTAINER, "goofish-cli")]
+
+
+def test_interactive_mcp_does_not_start_docker(monkeypatch):
+    monkeypatch.setattr(cli.sys, "stdin", SimpleNamespace(isatty=lambda: True))
+    monkeypatch.setattr(cli, "_docker", lambda *a, **kw: pytest.fail("TTY 误用不应启动 MCP"))
+    with pytest.raises(typer.Exit) as error:
+        cli.mcp()
+    assert error.value.exit_code == 2
 
 
 def test_missing_docker_reports_error_without_browser_fallback(monkeypatch):

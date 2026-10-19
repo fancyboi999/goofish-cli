@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from importlib.metadata import distribution, requires
@@ -297,6 +298,8 @@ def run(ctx: typer.Context):
 def mcp():
     """通过 stdio 连接沙箱内 MCP server；客户端使用 goofish sandbox mcp。"""
     _host_only()
+    if sys.stdin.isatty():
+        _fail("MCP 是 stdio 服务；请在 MCP 客户端中配置 goofish sandbox mcp。", 2)
     _require_running()
     result = _docker("exec", "-i", CONTAINER, "goofish-cli", check=False)
     raise typer.Exit(result.returncode)
