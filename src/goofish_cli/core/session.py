@@ -23,7 +23,7 @@ from loguru import logger
 
 from goofish_cli.core.cookie_types import CookieRecord
 from goofish_cli.core.crypto import decrypt_cookies, encrypt_cookies
-from goofish_cli.core.errors import AuthRequiredError
+from goofish_cli.core.errors import AuthRequiredError, GoofishError
 from goofish_cli.core.sign import generate_device_id
 
 DEFAULT_COOKIE_PATH = Path.home() / ".goofish-cli" / "cookies.json"
@@ -166,6 +166,23 @@ def save_cookies_if_unchanged(path: Path, cookies, expected_digest: str) -> bool
     return _replace_cookies(path, cookies, expected_digest)
 
 
+def read_cookie_snapshot(path: Path) -> tuple[list[CookieRecord], str]:
+    """记录和摘要来自同一份内容；解码期间的新登录由回写 CAS 保留。"""
+    path = path.resolve()
+    try:
+        with FileLock(str(path) + ".lock", timeout=5, mode=0o600):
+            raw = path.read_bytes()
+    except FileNotFoundError as exc:
+        raise AuthRequiredError("沙箱尚未保存登录态，请执行 goofish sandbox login") from exc
+    except Timeout as exc:
+        raise GoofishError("登录态读取锁超时，请稍后重试") from exc
+    records = _decode_cookie_records(raw, path)
+    flat = _records_to_flat(records)
+    if not all(flat.get(key) for key in ("unb", "_m_h5_tk")):
+        raise AuthRequiredError("沙箱登录态缺少必要字段，请执行 goofish sandbox login")
+    return records, hashlib.sha256(raw).hexdigest()
+
+
 def _replace_cookies(path: Path, cookies, expected_digest: str | None = None) -> bool:
     from .local_state import atomic_write_bytes
 
@@ -206,7 +223,10 @@ def _load_or_mint_device_id(unb: str) -> str:
 
 
 def _load_cookies(path: Path) -> list[CookieRecord]:
-    raw_bytes = path.read_bytes()
+    return _decode_cookie_records(path.read_bytes(), path)
+
+
+def _decode_cookie_records(raw_bytes: bytes, path: Path) -> list[CookieRecord]:
     # 优先尝试解密（加密格式或明文 JSON）
     data: dict | list | None = None
     with contextlib.suppress(Exception):

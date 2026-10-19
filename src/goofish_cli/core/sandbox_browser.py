@@ -17,9 +17,9 @@ from .crypto import decrypt_cookies, encrypt_cookies
 from .errors import AuthRequiredError, GoofishError
 from .local_state import atomic_write_bytes
 from .session import (
-    Session,
     _coerce_records,
     _records_to_flat,
+    read_cookie_snapshot,
     resolve_cookie_path,
     save_cookies_if_unchanged,
 )
@@ -71,10 +71,13 @@ def _generation() -> str:
 async def sandbox_page(*, cookies=None, persist_session: bool = True):
     from .browser import _cookies_to_playwright
 
-    records = Session.load().cookie_records if cookies is None else _coerce_records(cookies)
-    expected_user = _records_to_flat(records).get("unb")
     source = resolve_cookie_path()
-    original_digest = hashlib.sha256(source.read_bytes()).hexdigest() if source.exists() else None
+    if cookies is None:
+        records, original_digest = read_cookie_snapshot(source)
+    else:
+        # 外部传入的记录没有磁盘版本来源，不能据此回写 CLI 登录文件。
+        records, original_digest = _coerce_records(cookies), None
+    expected_user = _records_to_flat(records).get("unb")
     ROOT.mkdir(parents=True, exist_ok=True)
     lock = FileLock(ROOT / "desktop-browser.lock", timeout=0, mode=0o600)
     try:

@@ -82,15 +82,38 @@ goofish message watch                               # 实时接收消息
 goofish message send <cid> <toid> --text "在的"    # 发消息
 ```
 
-希望浏览器自动化不占用本机桌面时，使用[独立桌面沙箱](docs/sandbox.md)：
+### 不占用桌面的沙箱模式
+
+需要运行中的本机 Docker Desktop / Docker Engine。安装支持沙箱的版本后，先在终端执行：
 
 ```sh
+goofish sandbox --help
 goofish sandbox start
-goofish sandbox login  # 在观察链接里扫码登录
+# 手动打开输出的观察链接，默认 http://127.0.0.1:16080/vnc.html?autoconnect=1&resize=scale
+goofish sandbox login  # 在虚拟桌面里扫码并确认
+
+goofish sandbox run auth status --format json
 goofish sandbox run search items '机械键盘' --limit 3
 ```
 
-首次启动需要下载并构建镜像。CLI 和 MCP 均可在 Docker 虚拟桌面内运行，登录态与日常浏览器分开保存。
+让 AI 客户端也使用沙箱时，将原有 `goofish` MCP 配置替换为：
+
+```json
+{
+  "mcpServers": {
+    "goofish": {
+      "command": "goofish",
+      "args": ["sandbox", "mcp"]
+    }
+  }
+}
+```
+
+客户端必须能找到 `goofish` 和 `docker`；桌面客户端找不到命令时，将 `command` 改为 `command -v goofish` 输出的绝对路径，并检查客户端 PATH 中是否有 Docker。Codex 使用 TOML，见 [MCP 客户端配置](docs/mcp-setup.md#独立桌面模式)。不要同时保留原来的本机 Goofish server；直接运行 `uvx goofish-cli` 仍使用本机模式。
+
+首次启动会下载并构建镜像。Chromium 在容器虚拟桌面里常驻，登录态保存在独立卷；命令不会自动打开宿主机浏览器。平台要求验证时，执行 `goofish sandbox browse --item-id <商品ID>`，在观察页面人工完成。升级后用 `stop`、`start --rebuild` 更新镜像，状态卷保留。
+
+如果 `sandbox --help` 不识别命令，当前安装的发行版尚未包含沙箱功能。源码安装、完整的登录/恢复步骤和限制见[沙箱指南](docs/sandbox.md)。
 
 ---
 
@@ -284,7 +307,9 @@ goofish item publish "男士毛呢大衣 驼色长款" \
 
 ## 🔌 接入 Claude Code（MCP）
 
-在 `~/.config/claude-code/config.json`：
+以下为本机模式；需要隔离桌面时，使用上面的沙箱 MCP 配置，客户端位置见 [MCP 接入指南](docs/mcp-setup.md)。
+
+在项目根目录 `.mcp.json` 配置：
 
 ```json
 {
@@ -297,7 +322,7 @@ goofish item publish "男士毛呢大衣 驼色长款" \
 }
 ```
 
-Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_publish` / `goofish_message_watch`... 你在对话里直接说"帮我看下 itemId=xxx 的详情"，Claude 就会调用。
+Claude 会自动把全部命令看成 tool：`mcp__goofish__item_get` / `mcp__goofish__item_publish` / `mcp__goofish__message_watch`... 你在对话里直接说"帮我看下 itemId=xxx 的详情"，Claude 就会调用。
 
 ---
 
@@ -312,7 +337,7 @@ Claude 会自动把全部命令看成 tool：`goofish_item_get` / `goofish_item_
 | WebSocket 自动重连 | 断线自退避重连，长跑无感知 |
 | 已读回执 / typing / 新消息通知分类 | `/s/sync` 元事件结构化为三类 JSONL |
 | 全局限流 + 风控熔断 | 账号业务预算 + RGV587 自动熔断 |
-| 单元测试 | 33 个，ruff 零告警 |
+| 回归验证 | `pytest` + `ruff check src tests` |
 | 包分发 | `pip install goofish-cli` / `uvx goofish-cli` |
 
 ---
