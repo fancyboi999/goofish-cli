@@ -27,11 +27,16 @@ def read_json(path: Path) -> dict[str, Any]:
 
 
 def atomic_write(path: Path, value: dict[str, Any]) -> None:
+    atomic_write_bytes(path, json.dumps(value, allow_nan=False).encode())
+
+
+def atomic_write_bytes(path: Path, value: bytes) -> None:
+    """同目录写入并原子替换；明文或加密状态都不暴露半份文件。"""
     path.parent.mkdir(parents=True, exist_ok=True)
     fd, temporary = tempfile.mkstemp(prefix=path.name + ".", dir=path.parent)
     try:
-        with os.fdopen(fd, "w") as stream:
-            json.dump(value, stream, allow_nan=False)
+        with os.fdopen(fd, "wb") as stream:
+            stream.write(value)
             stream.flush()
             os.fsync(stream.fileno())
         os.chmod(temporary, 0o600)

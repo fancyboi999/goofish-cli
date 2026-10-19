@@ -1,26 +1,22 @@
-"""item view — 浏览器视角的商品详情。对标 OpenCLI `xianyu/item.js`。
+"""item view — 浏览器商品详情。沙箱读取页面自身的响应并校验身份。
 
-`item get` 在 CLI 里直签调 `mtop.taobao.idle.pc.detail` v1.0。
-`item view` 在真实 Chrome 的商品页上下文里调同一 API（走 `window.lib.mtop.request`），
-好处：
-
-1. **字段完整**：直接按 OpenCLI 的提取器从 `data.itemDO / data.sellerDO / itemLabelExtList`
-   抽 20+ 字段（description / want_count / browse_count / 成色 / 品牌 / image_urls /
-   seller_score / reply_ratio_24h 等）。
-2. **抗风控兜底**：CLI 直签偶尔遇到 x5sec / h5_token 失效，浏览器路径作为备份链路。
-
-保留 `item get`（快且不需要 Chrome），两条路并存。用户根据场景选。
+本机保留原有页面 SDK 调用；沙箱 item get 与 view 共用常驻浏览器路径。
+平台要求验证时明确报错并保留沙箱页面，由用户亲自处理。
 """
+
 from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 from typing import Any
 
 from goofish_cli.core import Strategy, command
 from goofish_cli.core.browser import goofish_page
 from goofish_cli.core.errors import AuthRequiredError, GoofishError
+from goofish_cli.core.item_data import normalize_item
+from goofish_cli.core.item_page import read_item_page
 
 
 def _normalize_item_id(value: Any) -> str:
@@ -32,6 +28,47 @@ def _normalize_item_id(value: Any) -> str:
 
 def _build_item_url(item_id: str) -> str:
     return f"https://www.goofish.com/item?id={item_id}"
+
+
+def _view_result(raw: dict[str, Any], item_id: str) -> dict[str, Any]:
+    base = normalize_item(raw, item_id)
+    data = raw["data"]
+    item, seller = data["itemDO"], data.get("sellerDO") or {}
+
+    def clean(value):
+        return re.sub(r"\s+", " ", str(value if value is not None else "")).strip()
+
+    images = [
+        image["url"]
+        for image in item.get("imageInfos") or []
+        if isinstance(image, dict) and image.get("url")
+    ]
+    result = {key: value for key, value in base.items() if key not in {"raw", "seller_nick"}}
+    result.update(
+        title=clean(base["title"]),
+        description=clean(base["description"]),
+        price="¥" + clean(base["price"]) if base["price"] is not None else None,
+        original_price=clean(base["original_price"]),
+        seller_name=clean(base["seller_nick"]),
+        seller_id=clean(base["seller_id"]),
+        status=clean(base["status"]),
+        location=clean(base["location"]),
+        condition=clean(base["condition"]),
+        brand=clean(base["brand"]),
+        category=clean(base["category"]),
+        want_count=clean(item.get("wantCnt")),
+        collect_count=clean(item.get("collectCnt")),
+        browse_count=clean(item.get("browseCnt")),
+        seller_score=clean(seller.get("xianyuSummary")),
+        reply_ratio_24h=clean(seller.get("replyRatio24h")),
+        reply_interval=clean(seller.get("replyInterval")),
+        seller_url="https://www.goofish.com/personal?userId=" + clean(base["seller_id"])
+        if base["seller_id"] is not None
+        else "",
+        image_count=str(len(images)),
+        image_urls=images,
+    )
+    return result
 
 
 # 页面上下文里运行的抽取脚本。直接复用 OpenCLI 的提取逻辑（DOM 文案检查 + mtop 调用）。
@@ -131,7 +168,7 @@ _FETCH_JS = r"""
 """
 
 
-async def _run(item_id: str) -> dict[str, Any]:
+async def _run_native(item_id: str) -> dict[str, Any]:
     url = _build_item_url(item_id)
     async with goofish_page() as page:
         await page.goto(url, wait_until="domcontentloaded")
@@ -161,14 +198,33 @@ async def _run(item_id: str) -> dict[str, Any]:
     return result
 
 
+
+async def _run(item_id: str) -> dict[str, Any]:
+    if os.environ.get("GOOFISH_DESKTOP_SANDBOX") != "1":
+        return await _run_native(item_id)
+    async with goofish_page() as page:
+        raw = await read_item_page(page, item_id)
+    result = _view_result(raw, item_id)
+    if not result.get("title"):
+        raise GoofishError(f"未拿到商品 {item_id} 的标题，接口返回为空")
+    return result
+
+
 @command(
     namespace="item",
     name="view",
-    description="浏览器视角查看商品详情（字段比 item get 更全，抗风控）",
+    description="浏览器视角查看商品详情（读取页面响应，含图片和卖家字段）",
     strategy=Strategy.COOKIE,
     columns=[
-        "item_id", "title", "price", "condition", "brand", "location",
-        "seller_name", "want_count", "browse_count",
+        "item_id",
+        "title",
+        "price",
+        "condition",
+        "brand",
+        "location",
+        "seller_name",
+        "want_count",
+        "browse_count",
     ],
 )
 def view(item_id: str) -> dict[str, Any]:

@@ -1,6 +1,7 @@
 """Playwright 浏览器上下文 —— 吸纳 OpenCLI 的浏览器自动化路线。
 
-设计要点（用户明确要求）：
+沙箱模式串行连接容器内的常驻 Chromium，保留同一页面和人工验证后的会话。
+以下设计说明针对默认本机模式：
 1. **用系统 Chrome**（`channel="chrome"`），不用 playwright 自带的 bundled chromium——
    bundled chromium 的 UA / CDP 指纹太"裸"，是风控高危目标；系统 Chrome 是真实用户
    每天在用的可执行，配上真实 cookies 后基本等同正常浏览。
@@ -93,8 +94,11 @@ async def goofish_page(
     headless: bool | None = None,
     viewport: tuple[int, int] = (1440, 900),
     cookies: dict | list | None = None,
+    persist_session: bool = True,
 ) -> AsyncIterator[Any]:
-    """启动系统 Chrome（独立 tmp profile）+ 灌 cookie，yield 出一个 `Page`。
+    """本机启动独立 profile；沙箱串行连接常驻浏览器，yield 出一个 `Page`。
+
+    本机使用系统 Chrome；沙箱使用虚拟显示器上的 Chromium。
 
     `cookies` 可选：显式传入（flat dict 或带 domain 的 records list）时直接用；
     不传则走 `Session.load()` 三级兜底。自动刷 `_m_h5_tk` 的调用方需要用内存里
@@ -107,17 +111,28 @@ async def goofish_page(
     """
     from playwright.async_api import async_playwright
 
+    sandbox = os.environ.get("GOOFISH_DESKTOP_SANDBOX") == "1"
+    if sandbox:
+        from goofish_cli.core.errors import GoofishError
+        if not Path("/.dockerenv").exists() or os.environ.get("DISPLAY") != ":1":
+            raise GoofishError("沙箱虚拟桌面不可用；不会回退到本机浏览器。")
+        from .sandbox_browser import sandbox_page
+        async with sandbox_page(cookies=cookies, persist_session=persist_session) as page:
+            yield page
+        return
+
     if headless is None:
         # 默认 headful。CI 用户显式 GOOFISH_HEADLESS=1 切回（可能触发风控）。
         headless = os.environ.get("GOOFISH_HEADLESS") == "1"
 
-    PROFILES_PARENT.mkdir(parents=True, exist_ok=True)
-    # 每次调用独立 profile 目录，避开 Chrome SingletonLock 并发冲突
-    profile_dir = Path(tempfile.mkdtemp(prefix="chrome-", dir=str(PROFILES_PARENT)))
+    profiles_parent = PROFILES_PARENT
     if cookies is None:
         cookies = _load_cookies_from_session()
     pw_cookies = _cookies_to_playwright(cookies)
 
+    profiles_parent.mkdir(parents=True, exist_ok=True)
+    # 登录态解析失败时不创建 profile；成功后每次调用独立目录，避开 SingletonLock。
+    profile_dir = Path(tempfile.mkdtemp(prefix="chrome-", dir=str(profiles_parent)))
     try:
         async with async_playwright() as pw:
             context = await pw.chromium.launch_persistent_context(
