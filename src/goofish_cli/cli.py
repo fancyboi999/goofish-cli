@@ -12,6 +12,7 @@ from goofish_cli.core import GoofishError, iter_commands
 from goofish_cli.core.errors import PartialResultError
 from goofish_cli.core.output import Format, render
 from goofish_cli.core.registry import Command, discover
+from goofish_cli.sandbox.cli import app as sandbox_app
 
 app = typer.Typer(
     name="goofish",
@@ -19,6 +20,7 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+app.add_typer(sandbox_app, name="sandbox")
 
 
 def _format_option() -> typer.Option:

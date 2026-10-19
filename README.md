@@ -82,6 +82,16 @@ goofish message watch                               # 实时接收消息
 goofish message send <cid> <toid> --text "在的"    # 发消息
 ```
 
+希望浏览器自动化不占用本机桌面时，使用[独立桌面沙箱](docs/sandbox.md)：
+
+```sh
+goofish sandbox start
+goofish sandbox login  # 在观察链接里扫码登录
+goofish sandbox run search items '机械键盘' --limit 3
+```
+
+首次启动需要下载并构建镜像。CLI 和 MCP 均可在 Docker 虚拟桌面内运行，登录态与日常浏览器分开保存。
+
 ---
 
 ## 🧩 Claude Skills（v0.3 新增）

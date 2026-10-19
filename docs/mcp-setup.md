@@ -111,3 +111,6 @@ for t in asyncio.run(mcp.list_tools()):
     print(t.name)
 "
 ```
+## 独立桌面模式
+
+需要浏览器自动化不占用宿主机桌面时，先运行 `goofish sandbox start` 和 `goofish sandbox login`，再将 MCP 命令配置为 `goofish`，参数配置为 `["sandbox", "mcp"]`。详细的 Docker 要求、状态保存和 uvx 配置见[沙箱指南](sandbox.md)。
