@@ -18,6 +18,48 @@ from goofish_cli.core.errors import AuthRequiredError, GoofishError
 from goofish_cli.core.item_data import normalize_item
 from goofish_cli.core.item_page import read_item_page
 
+try:  # playwright 是运行时依赖；缺失时退化为直接抛原始异常
+    from playwright.async_api import Error as PlaywrightError
+except ImportError:  # pragma: no cover
+    PlaywrightError = Exception  # type: ignore[assignment,misc]
+
+
+def _is_navigation_race(exc: BaseException) -> bool:
+    """详情页在 domcontentloaded 之后还会再导航一次（同 URL）。
+
+    在导航间隙执行 page.evaluate 会抛 "Execution context was destroyed"。
+    这是竞态，不是登录态或风控问题，重试即可。
+    """
+    msg = str(exc)
+    return (
+        "Execution context was destroyed" in msg
+        or "Cannot find context with specified id" in msg
+        or "most likely because of a navigation" in msg
+    )
+
+
+async def _evaluate_detail(page: Any, item_id: str, *, attempts: int = 3) -> Any:
+    """在页面里执行取数脚本；遇到导航竞态就等页面重新稳定后重试。"""
+    last: BaseException | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            return await page.evaluate(_FETCH_JS, item_id)
+        except PlaywrightError as exc:
+            if not _is_navigation_race(exc):
+                raise
+            last = exc
+            if attempt == attempts:
+                break
+            await page.wait_for_timeout(700 * attempt)
+            # 页面被导航去了别处（登录页/首页）时重新进入，否则原地重试
+            if f"id={item_id}" not in (page.url or ""):
+                await page.goto(_build_item_url(item_id), wait_until="domcontentloaded", timeout=45000)
+                await page.wait_for_timeout(1500)
+    raise GoofishError(
+        f"详情页在 {attempts} 次尝试内持续处于导航中，未取到商品 {item_id}"
+    ) from last
+
+
 
 def _normalize_item_id(value: Any) -> str:
     s = str(value or "").strip()
@@ -173,7 +215,7 @@ async def _run_native(item_id: str) -> dict[str, Any]:
     async with goofish_page() as page:
         await page.goto(url, wait_until="domcontentloaded")
         await page.wait_for_timeout(2000)
-        result = await page.evaluate(_FETCH_JS, item_id)
+        result = await _evaluate_detail(page, item_id)
 
     if not isinstance(result, dict):
         raise GoofishError("商品详情页返回结构非预期")
@@ -238,4 +280,5 @@ def view(item_id: str) -> dict[str, Any]:
 __test__ = {
     "_normalize_item_id": _normalize_item_id,
     "_build_item_url": _build_item_url,
+    "_is_navigation_race": _is_navigation_race,
 }
