@@ -112,7 +112,7 @@ class ItemResponse:
             self.last_error = GoofishError("详情响应读取中断，未收到后续成功响应")
             return
         try:
-            result = _decode_response(text, self.item_id)
+            result: dict | GoofishError = _decode_response(text, self.item_id)
         except GoofishError as exc:
             ret = (exc.raw or {}).get("ret", [])
             if ret and all(value.partition("::")[0] in _TOKEN_REFRESH_CODES for value in ret):
