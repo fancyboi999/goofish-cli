@@ -12,29 +12,21 @@ import os
 import re
 from typing import Any
 
+from playwright.async_api import Error as PlaywrightError
+
 from goofish_cli.core import Strategy, command
 from goofish_cli.core.browser import goofish_page
 from goofish_cli.core.errors import AuthRequiredError, GoofishError
 from goofish_cli.core.item_data import normalize_item
 from goofish_cli.core.item_page import read_item_page
 
-try:  # playwright 是运行时依赖；缺失时退化为直接抛原始异常
-    from playwright.async_api import Error as PlaywrightError
-except ImportError:  # pragma: no cover
-    PlaywrightError = Exception  # type: ignore[assignment,misc]
-
 
 def _is_navigation_race(exc: BaseException) -> bool:
-    """详情页在 domcontentloaded 之后还会再导航一次（同 URL）。
-
-    在导航间隙执行 page.evaluate 会抛 "Execution context was destroyed"。
-    这是竞态，不是登录态或风控问题，重试即可。
-    """
+    """识别页面执行上下文失效的 Playwright 错误。"""
     msg = str(exc)
     return (
         "Execution context was destroyed" in msg
         or "Cannot find context with specified id" in msg
-        or "most likely because of a navigation" in msg
     )
 
 
