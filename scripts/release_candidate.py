@@ -23,6 +23,12 @@ def require(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
+def merge_subject(title: str) -> str:
+    subject = title.removesuffix(" [skip ci]")
+    require(bool(re.fullmatch(r"chore\(main\): release \d+\.\d+\.\d+", subject)), "无效的发布标题")
+    return subject
+
+
 def pull(number: int):
     repo = os.environ["GITHUB_REPOSITORY"]
     pr = gh("api", f"repos/{repo}/pulls/{number}")
@@ -56,7 +62,9 @@ def main() -> None:
     current = gh("api", f"repos/{repo}/git/ref/heads/main")["object"]["sha"]
     require(current == base, "main 已更新，须重新生成发布 PR")
     subprocess.run(["gh", "pr", "merge", str(number), "--repo", repo,
-                    "--squash", "--match-head-commit", expected], check=True)
+                    "--squash", "--match-head-commit", expected,
+                    "--subject", merge_subject(pr["title"]),
+                    "--body", f"Release metadata validated at {expected}."], check=True)
     print(f"Validated release PR #{number} merged")
 
 

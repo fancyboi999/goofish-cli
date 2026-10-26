@@ -6,6 +6,7 @@
       "release-type": "python",
       "package-name": "goofish-cli",
       "include-component-in-tag": false,
+      "pull-request-title-pattern": "chore${scope}: release${component} ${version} [skip ci]",
       "bump-minor-pre-major": true,
       "bump-patch-for-minor-pre-major": false,
       "extra-files": [
