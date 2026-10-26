@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.3](https://github.com/fancyboi999/goofish-cli/compare/v0.6.2...v0.6.3) (2026-10-26)
+
+
+### Bug Fixes
+
+* **ci:** modernize action runtimes and avoid redundant release PR runs ([#53](https://github.com/fancyboi999/goofish-cli/issues/53)) ([c9017d2](https://github.com/fancyboi999/goofish-cli/commit/c9017d28d554ae8142178961bd36de8816dbceab))
+
 ## [0.6.2](https://github.com/fancyboi999/goofish-cli/compare/v0.6.1...v0.6.2) (2026-10-26)
 
 
