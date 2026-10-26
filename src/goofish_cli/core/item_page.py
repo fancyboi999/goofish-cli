@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import re
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
@@ -125,8 +126,11 @@ class ItemResponse:
         deadline = asyncio.get_running_loop().time() + timeout
         while True:
             try:
+                remaining = deadline - asyncio.get_running_loop().time()
+                if remaining <= 0:
+                    raise TimeoutError
                 result = await asyncio.wait_for(
-                    self.results.get(), max(0.01, deadline - asyncio.get_running_loop().time())
+                    self.results.get(), remaining
                 )
             except TimeoutError as exc:
                 if self.last_error is not None:
@@ -155,6 +159,8 @@ class ItemResponse:
 
 async def read_item_page(page, item_id: str, *, timeout: float = 20) -> dict:
     """导航与取数共享同一截止时间；页面上下文被替换不影响响应观察。"""
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise GoofishError("详情读取超时必须为有限正数")
     observer = ItemResponse(page, item_id)
     deadline = asyncio.get_running_loop().time() + timeout
     try:
@@ -163,7 +169,7 @@ async def read_item_page(page, item_id: str, *, timeout: float = 20) -> dict:
             wait_until="commit",
             timeout=timeout * 1000,
         )
-        return await observer.wait(max(0.01, deadline - asyncio.get_running_loop().time()))
+        return await observer.wait(deadline - asyncio.get_running_loop().time())
     except PlaywrightError as exc:
         raise GoofishError("商品详情页加载失败或超时，请检查网络及浏览器状态") from exc
     finally:

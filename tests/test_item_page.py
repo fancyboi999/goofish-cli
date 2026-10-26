@@ -164,3 +164,24 @@ async def test_later_response_does_not_overwrite_terminal_session_error():
             await observer.wait(0.1)
     finally:
         await observer.close()
+
+
+async def test_repeated_challenges_do_not_extend_manual_verification_deadline():
+    observer = ItemResponse(Page(), "123")
+
+    async def body():
+        return json.dumps({"ret": ["FAIL_SYS_USER_VALIDATE::RGV587_ERROR"]})
+
+    async def page_responses():
+        while True:
+            await observer._capture(SimpleNamespace(status=200, text=body))
+            await asyncio.sleep(0)
+
+    producer = asyncio.create_task(page_responses())
+    try:
+        with pytest.raises(RiskControlError):
+            await asyncio.wait_for(observer.wait(0.02, allow_verification=True), 0.2)
+    finally:
+        producer.cancel()
+        await asyncio.gather(producer, return_exceptions=True)
+        await observer.close()
