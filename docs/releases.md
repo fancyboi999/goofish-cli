@@ -10,6 +10,10 @@ PyPI 自动发布，ClawHub 手动发布。业务 PR 合入 main 后，release-p
 
 发布 PR 验证按完整 SHA 执行。非机器人、外部仓库、非 main 基线或版本文件范围外的 PR 不进入自动合并；版本 JSON/TOML 中除版本外的内容、MCP 其他参数以及文档非版本内容也不得改变。检查后候选或 main 更新会中止合并，下一次执行重新生成并验证。
 
+GITHUB_TOKEN 创建的 PR 触发普通 PR workflow 时[需要人工批准](https://docs.github.com/en/actions/concepts/security/github_token)。版本 PR 已在发布流程内验证完整候选，因此其分支提交使用 [`[skip ci]`](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs) 避免产生重复的待批准运行；普通 PR 不受影响。合并脚本校验发布标题，并显式移除该标记、使用固定正文生成 squash 提交，防止标记进入 main 或版本 tag。候选验证和发布 tag 的完整 CI 仍必须通过，不使用个人 token 或降低批准策略。
+
+工作流固定使用 Ubuntu 24.04，避免 `ubuntu-latest` 自动迁移改变构建环境。JavaScript actions 固定到经过核对的 Node.js 24 运行时版本及完整提交 SHA；命令行签名与插件检查使用的 Node.js 版本也为 24。
+
 GITHUB_TOKEN 创建的 tag 不会触发另一个 push workflow，所以程序显式 dispatch `publish.yml` 到版本 tag；不依赖 tag 事件级联。发布始终由 `publish.yml` 执行，保留既有 PyPI Trusted Publisher 的 workflow 身份。
 
 ## 上传与回读
