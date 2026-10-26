@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 import pytest
 
 from goofish_cli.commands.item.view import _view_result
-from goofish_cli.core.errors import GoofishError, RiskControlError
+from goofish_cli.core.errors import AuthRequiredError, GoofishError, RiskControlError
 from goofish_cli.core.item_page import ItemResponse, _decode_response, _matches_request
 
 
@@ -75,6 +75,17 @@ def test_platform_challenge_has_risk_exit_code():
     assert "人工验证" in str(exc.value)
 
 
+@pytest.mark.parametrize("field", ["sellerDO", "imageInfos", "itemLabelExtList"])
+def test_malformed_detail_fields_are_domain_errors(field):
+    raw = payload()
+    if field == "sellerDO":
+        raw["data"][field] = ["invalid"]
+    else:
+        raw["data"]["itemDO"][field] = 42
+    with pytest.raises(GoofishError):
+        _view_result(_decode_response(json.dumps(raw), "123"), "123")
+
+
 class Page:
     def __init__(self):
         self.handlers = {}
@@ -115,3 +126,41 @@ async def test_manual_challenge_waits_for_new_success_without_issuing_requests()
     await observer._capture(success)
     assert (await waiter)["data"]["itemDO"]["itemId"] == "123"
     await observer.close()
+
+
+async def test_sdk_token_refresh_can_complete_before_deadline():
+    observer = ItemResponse(Page(), "123")
+
+    async def body(raw):
+        return json.dumps(raw)
+
+    waiter = asyncio.create_task(observer.wait(1))
+    try:
+        await observer._capture(SimpleNamespace(
+            status=200, text=lambda: body({"ret": ["FAIL_SYS_TOKEN_EMPTY::刷新令牌"]})
+        ))
+        with pytest.raises(TimeoutError):
+            await asyncio.wait_for(asyncio.shield(waiter), 0.01)
+        await observer._capture(SimpleNamespace(status=200, text=lambda: body(payload())))
+        assert (await waiter)["data"]["itemDO"]["itemId"] == "123"
+    finally:
+        waiter.cancel()
+        await asyncio.gather(waiter, return_exceptions=True)
+        await observer.close()
+
+
+async def test_later_response_does_not_overwrite_terminal_session_error():
+    observer = ItemResponse(Page(), "123")
+
+    async def body(raw):
+        return json.dumps(raw)
+
+    try:
+        await observer._capture(SimpleNamespace(
+            status=200, text=lambda: body({"ret": ["FAIL_SYS_SESSION_EXPIRED::登录失效"]})
+        ))
+        await observer._capture(SimpleNamespace(status=200, text=lambda: body(payload())))
+        with pytest.raises(AuthRequiredError):
+            await observer.wait(0.1)
+    finally:
+        await observer.close()

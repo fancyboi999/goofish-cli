@@ -8,11 +8,14 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from .errors import GoofishError, RiskControlError
+from playwright.async_api import Error as PlaywrightError
+
+from .errors import AuthRequiredError, GoofishError, RiskControlError
 from .item_data import normalize_item
 from .mtop import _classify_error
 
 DETAIL_PATH = "/h5/mtop.taobao.idle.pc.detail/1.0/"
+_TOKEN_REFRESH_CODES = {"FAIL_SYS_TOKEN_EMPTY", "FAIL_SYS_TOKEN_EXOIRED", "FAIL_SYS_TOKEN_EXPIRED"}
 
 
 def _matches_request(request, item_id: str) -> bool:
@@ -46,11 +49,19 @@ def _decode_response(text: str, item_id: str) -> dict:
         _classify_error(raw, "mtop.taobao.idle.pc.detail")
     except RiskControlError as exc:
         raise RiskControlError(
-            "闲鱼详情需要人工验证；请在沙箱浏览器完成验证后重试，不会自动绕过或重发请求",
+            "闲鱼详情需要人工验证；请在浏览器完成验证后重试，不会自动绕过或重发请求",
             raw=raw,
         ) from exc
     if any(value.partition("::")[0] != "SUCCESS" for value in raw["ret"]):
         raise GoofishError("详情响应不是明确成功状态")
+    data = raw.get("data")
+    if not isinstance(data, dict) or not isinstance(data.get("itemDO"), dict):
+        raise GoofishError("详情响应缺少商品数据")
+    if data.get("sellerDO") is not None and not isinstance(data["sellerDO"], dict):
+        raise GoofishError("详情响应卖家数据格式无效")
+    for field in ("itemLabelExtList", "imageInfos"):
+        if data["itemDO"].get(field) is not None and not isinstance(data["itemDO"][field], list):
+            raise GoofishError(f"详情响应 {field} 格式无效")
     normalize_item(raw, item_id)
     return raw
 
@@ -61,19 +72,25 @@ class ItemResponse:
     def __init__(self, page, item_id: str):
         self.page = page
         self.item_id = item_id
-        self.raw: dict | None = None
-        self.error: GoofishError | None = None
-        self.ready = asyncio.Event()
+        self.results: asyncio.Queue[dict | GoofishError] = asyncio.Queue()
+        self.last_error: GoofishError | None = None
         self.requests: set[Any] = set()
         self.tasks: set[asyncio.Task] = set()
         self.request_handler = self._request
         self.response_handler = self._schedule
+        self.failure_handler = self._failed
+        self.close_handler = lambda: self.results.put_nowait(GoofishError("商品详情页已关闭"))
         page.on("request", self.request_handler)
         page.on("response", self.response_handler)
+        page.on("requestfailed", self.failure_handler)
+        page.on("close", self.close_handler)
 
     def _request(self, request) -> None:
         if _matches_request(request, self.item_id):
             self.requests.add(request)
+
+    def _failed(self, request) -> None:
+        self.requests.discard(request)
 
     def _schedule(self, response) -> None:
         if response.request not in self.requests:
@@ -84,52 +101,71 @@ class ItemResponse:
         task.add_done_callback(self.tasks.discard)
 
     async def _capture(self, response) -> None:
+        if response.status != 200:
+            self.results.put_nowait(GoofishError(f"详情服务返回 HTTP {response.status}"))
+            return
+        # 导航可能取消响应体读取；只等待页面后续的自然响应，不主动补发请求。
         try:
-            if response.status != 200:
-                raise GoofishError(f"详情服务返回 HTTP {response.status}")
-            self.raw = _decode_response(await response.text(), self.item_id)
-            self.error = None
+            text = await response.text()
+        except PlaywrightError:
+            self.last_error = GoofishError("详情响应读取中断，未收到后续成功响应")
+            return
+        try:
+            result = _decode_response(text, self.item_id)
         except GoofishError as exc:
-            self.raw = None
-            self.error = exc
-        except Exception:
-            self.raw = None
-            self.error = GoofishError("详情响应读取失败")
-        self.ready.set()
+            ret = (exc.raw or {}).get("ret", [])
+            if ret and all(value.partition("::")[0] in _TOKEN_REFRESH_CODES for value in ret):
+                # SDK 会自行刷新 token 并重发；中间态不代表用户会话已失效。
+                self.last_error = AuthRequiredError("页面令牌刷新未完成", raw=exc.raw)
+                return
+            result = exc
+        self.results.put_nowait(result)
 
     async def wait(self, timeout: float = 20, *, allow_verification: bool = False) -> dict:
         deadline = asyncio.get_running_loop().time() + timeout
         while True:
             try:
-                await asyncio.wait_for(
-                    self.ready.wait(), max(0.01, deadline - asyncio.get_running_loop().time())
+                result = await asyncio.wait_for(
+                    self.results.get(), max(0.01, deadline - asyncio.get_running_loop().time())
                 )
             except TimeoutError as exc:
+                if self.last_error is not None:
+                    raise self.last_error from exc
                 raise GoofishError(
-                    "未收到目标商品的成功详情响应；沙箱页面保留，可检查当前页面"
+                    "等待超时，未收到目标商品的成功详情响应；请检查网络及页面是否需要登录或人工验证"
                 ) from exc
-            self.ready.clear()
-            if self.raw is not None:
-                return self.raw
-            if self.error is not None:
-                if allow_verification and isinstance(self.error, RiskControlError):
-                    self.error = None
+            if isinstance(result, GoofishError):
+                if allow_verification and isinstance(result, RiskControlError):
+                    self.last_error = result
                     continue
-                raise self.error
+                raise result
+            return result
 
     async def close(self) -> None:
         self.page.remove_listener("request", self.request_handler)
         self.page.remove_listener("response", self.response_handler)
-        for task in self.tasks:
+        self.page.remove_listener("requestfailed", self.failure_handler)
+        self.page.remove_listener("close", self.close_handler)
+        tasks = tuple(self.tasks)
+        for task in tasks:
             task.cancel()
-        await asyncio.gather(*self.tasks, return_exceptions=True)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        self.requests.clear()
 
 
-async def read_item_page(page, item_id: str) -> dict:
+async def read_item_page(page, item_id: str, *, timeout: float = 20) -> dict:
+    """导航与取数共享同一截止时间；页面上下文被替换不影响响应观察。"""
     observer = ItemResponse(page, item_id)
+    deadline = asyncio.get_running_loop().time() + timeout
     try:
-        await page.goto(f"https://www.goofish.com/item?id={item_id}", wait_until="domcontentloaded")
-        return await observer.wait()
+        await page.goto(
+            f"https://www.goofish.com/item?id={item_id}",
+            wait_until="commit",
+            timeout=timeout * 1000,
+        )
+        return await observer.wait(max(0.01, deadline - asyncio.get_running_loop().time()))
+    except PlaywrightError as exc:
+        raise GoofishError("商品详情页加载失败或超时，请检查网络及浏览器状态") from exc
     finally:
         await observer.close()
 
