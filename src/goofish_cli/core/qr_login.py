@@ -42,12 +42,16 @@ _REQUIRED_LOGIN_COOKIES = ("_m_h5_tk", "unb", "cookie2")
 _DEFAULT_QR_TIMEOUT = 120
 
 
-async def _find_passport_frame(page: Any, timeout_ms: int = 20000) -> Any:
+async def _find_passport_frame(page: Any, timeout_ms: int = 60000) -> Any:
     """按 URL 轮询 page.frames 找 passport iframe。
 
     不用 element_handle.content_frame()：iframe 加载中会先 about:blank 再跳到
     passport 域，期间句柄跨文档失效，报 "Unable to adopt element handle from a
     different document"。直接轮询 page.frames 按 URL 匹配没有这个问题。
+
+    timeout 给 60s：登录页改版后 passport iframe 挂载明显变慢——实测
+    domcontentloaded ~16s、iframe 元素 ~24s 出现、src 跳到 passport 域 ~39s。
+    旧的 20s 默认会赶在 iframe 就绪前误判"登录页结构又变了"。
     """
     deadline = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < deadline:
@@ -113,8 +117,6 @@ async def _login_via_qr_async(timeout: int) -> list[CookieRecord]:
 
         if sandbox:
             page.on("response", schedule)
-        # 轮询 cookies：扫码 → 手机确认 → passport 下发完整 session 一般 < 5s
-        deadline = time.monotonic() + timeout
         try:
             await page.goto(HOME_URL, wait_until="domcontentloaded")
             if not sandbox:
@@ -124,6 +126,10 @@ async def _login_via_qr_async(timeout: int) -> list[CookieRecord]:
 
             logger.info(f"[qr] 请用手机闲鱼 App 扫码登录（{timeout}s 超时）")
 
+            # timeout 只约束"用户扫码"阶段：登录页改版后 passport iframe 要 ~40s
+            # 才挂载，把页面加载算进 deadline 会吃掉大半扫码时间。
+            deadline = time.monotonic() + timeout
+            # 轮询 cookies：扫码 → 手机确认 → passport 下发完整 session 一般 < 5s
             while time.monotonic() < deadline:
                 cookies_list = await page.context.cookies()
                 flat = {c["name"]: c["value"] for c in cookies_list}
