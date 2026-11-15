@@ -15,32 +15,50 @@ from goofish_cli.core.mtop import call
 
 
 def _rich_text_plain(rich: Any) -> str:
-    """从飞书/草稿富文本结构里递归拼出纯文本，Element 段之间换行。"""
+    """从飞书/草稿富文本结构拼纯文本：同一段落内多个 Text 直接拼接，段落之间换行。"""
     if not rich:
         return ""
     if isinstance(rich, str):
         try:
-            rich = json.loads(rich)
+            decoded = json.loads(rich)
         except ValueError:
             return rich
+        # 纯数字 / 布尔 / null 等标量也是合法 JSON，但不是富文本树，原样保留字符串。
+        if not isinstance(decoded, (list, dict)):
+            return rich
+        rich = decoded
 
-    lines: list[str] = []
-
-    def walk(node: Any) -> None:
+    def _paragraphs(node: Any) -> list[str]:
         if isinstance(node, list):
+            out: list[str] = []
             for child in node:
-                walk(child)
-            return
+                out.extend(_paragraphs(child))
+            return out
         if not isinstance(node, dict):
-            return
-        if node.get("type") == "Text" and node.get("text"):
-            lines.append(str(node["text"]))
+            return []
+        if node.get("type") == "Text":
+            text = str(node["text"]).strip() if node.get("text") else ""
+            return [text] if text else []
+        out: list[str] = []
+        inline: list[str] = []
         for key in ("children", "elements"):
-            if isinstance(node.get(key), list):
-                walk(node[key])
+            sub = node.get(key)
+            if not isinstance(sub, list):
+                continue
+            for child in sub:
+                if isinstance(child, dict) and child.get("type") == "Text":
+                    if child.get("text"):
+                        inline.append(str(child["text"]))
+                else:
+                    if inline:
+                        out.append("".join(inline).strip())
+                        inline = []
+                    out.extend(_paragraphs(child))
+        if inline:
+            out.append("".join(inline).strip())
+        return [p for p in out if p]
 
-    walk(rich)
-    return "\n".join(line.strip() for line in lines if line.strip())
+    return "\n".join(_paragraphs(rich))
 
 
 def _images(image_list: list[dict[str, Any]] | None) -> list[dict[str, Any]]:

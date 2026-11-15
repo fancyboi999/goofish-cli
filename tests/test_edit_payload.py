@@ -7,6 +7,7 @@ import pytest
 from goofish_cli.commands.item.edit import (
     _cents,
     _draft_images,
+    _image_mode,
     _mark_single_major,
     _receipt,
     _resolve_default_price,
@@ -128,6 +129,25 @@ def test_images_extracts_public_fields():
     assert imgs == [{"url": "https://cdn/a.jpg", "width": 1024, "height": 768, "major": True}]
 
 
+# --- 图片模式（替换 / 追加互斥）---
+
+def test_image_mode_replace():
+    assert _image_mode(["a.jpg"], None) == (True, ["a.jpg"])
+
+
+def test_image_mode_append_keeps_draft():
+    assert _image_mode(None, ["c.jpg"]) == (False, ["c.jpg"])
+
+
+def test_image_mode_keeps_draft_when_neither():
+    assert _image_mode(None, None) == (False, [])
+
+
+def test_image_mode_rejects_replace_and_append_together():
+    with pytest.raises(GoofishError):
+        _image_mode(["a.jpg"], ["c.jpg"])
+
+
 # --- 标题 / 描述解析 ---
 
 def test_resolve_text_prefers_separate_fields():
@@ -169,3 +189,22 @@ def test_rich_text_plain_nested_elements():
     node = {"children": [{"type": "Text", "text": "第一段"},
                           {"elements": [{"type": "Text", "text": "第二段"}]}]}
     assert _rich_text_plain(node) == "第一段\n第二段"
+
+
+def test_rich_text_joins_inline_text_without_line_break():
+    # 同一段落内相邻的文字段应直接拼接，不能被换行拆成标题/描述两半
+    rich = json.dumps({"children": [
+        {"type": "Element", "children": [
+            {"type": "Text", "text": "Vintage "},
+            {"type": "Text", "text": "camera"},
+        ]},
+        {"type": "Element", "children": [{"type": "Text", "text": "第二段"}]},
+    ]})
+    assert _rich_text_plain(rich) == "Vintage camera\n第二段"
+
+
+def test_rich_text_keeps_scalar_json_string():
+    # 纯数字/小数是合法 JSON，解码成标量后仍应保留原字符串，而不是被当成空文本
+    assert _rich_text_plain("1984") == "1984"
+    assert _rich_text_plain("3.14") == "3.14"
+    assert _rich_text_plain("") == ""

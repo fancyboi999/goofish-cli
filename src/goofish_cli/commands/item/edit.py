@@ -108,6 +108,21 @@ def _mark_single_major(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return receipts
 
 
+def _image_mode(
+    images: list[str] | None, add_images: list[str] | None
+) -> tuple[bool, list[str]]:
+    """解析图片模式：返回 (是否全量替换, 待上传的本地图)。
+
+    两种模式互斥——同时传 --images 与 --add-images 时，追加的那批会被替换逻辑吞掉，
+    编辑却报成功，属于静默丢参数，故直接报错而不是二选一。
+    """
+    if images and add_images:
+        raise GoofishError("--images（全量替换）与 --add-images（追加）不能同时使用")
+    if images:
+        return True, list(images)
+    return False, list(add_images or [])
+
+
 def _resolve_default_price(price: float | None, draft: dict[str, Any]) -> bool:
     """显式给出一口价时切到一口价(False)；不传价则沿用草稿的议价/一口价模式。"""
     explicit = price is not None and price > 0
@@ -183,9 +198,8 @@ def edit(
 
     # 2. 图片：替换 / 追加 / 沿用草稿
     # dry-run 阶段只校验本地路径并占位，不实际上传；上传放到 --confirm 提交前。
-    replace = bool(images)
+    replace, local_paths = _image_mode(images, add_images)
     existing = [] if replace else _draft_images(draft)
-    local_paths = images or add_images or []
     for path in local_paths:
         validate_image_path(path)
 
