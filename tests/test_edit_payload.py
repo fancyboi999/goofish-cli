@@ -4,7 +4,14 @@ import json
 
 import pytest
 
-from goofish_cli.commands.item.edit import _cents, _draft_images, _receipt, _resolve_text
+from goofish_cli.commands.item.edit import (
+    _cents,
+    _draft_images,
+    _mark_single_major,
+    _receipt,
+    _resolve_default_price,
+    _resolve_text,
+)
 from goofish_cli.commands.item.edit_detail import _images, _rich_text_plain
 from goofish_cli.core.errors import GoofishError
 
@@ -23,6 +30,21 @@ def test_cents_rejects_negative_and_extra_precision():
         _cents(1.234)
     with pytest.raises(GoofishError):
         _cents("not-a-number")  # type: ignore[arg-type]
+
+
+# --- 定价模式（一口价 / 议价）---
+
+def test_default_price_switches_to_fixed_when_price_given():
+    # 草稿是议价(defaultPrice=True)，显式给价后必须切到一口价(False)
+    assert _resolve_default_price(25.0, {"defaultPrice": True}) is False
+    assert _resolve_default_price(9.9, {"defaultPrice": False}) is False
+
+
+def test_default_price_keeps_draft_mode_when_no_price():
+    assert _resolve_default_price(None, {"defaultPrice": True}) is True
+    assert _resolve_default_price(None, {"defaultPrice": False}) is False
+    # 价格为 0 视为不更新定价，沿用草稿
+    assert _resolve_default_price(0, {"defaultPrice": True}) is True
 
 
 # --- 图片收据 ---
@@ -53,6 +75,18 @@ def test_draft_images_skips_invalid_and_marks_major():
     assert receipts[0]["major"] is True
     assert receipts[1]["major"] is False
     assert "heightSize" not in receipts[1]
+
+
+def test_merge_receipts_keeps_only_one_major():
+    # 草稿图和新上传图各标了一张主图，合并后只能保留第一张为主图
+    receipts = [
+        _receipt("https://cdn/old-1.jpg", 800, 600, True),
+        _receipt("https://cdn/old-2.jpg", 800, 600, False),
+        _receipt("https://cdn/new-1.jpg", 800, 600, True),
+        _receipt("https://cdn/new-2.jpg", 800, 600, False),
+    ]
+    merged = _mark_single_major(receipts)
+    assert [r["major"] for r in merged] == [True, False, False, False]
 
 
 def test_images_extracts_public_fields():

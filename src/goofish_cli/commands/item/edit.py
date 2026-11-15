@@ -95,10 +95,23 @@ def _resolve_text(
 
 def _upload_local(paths: list[str]) -> list[dict[str, Any]]:
     receipts = []
-    for index, path in enumerate(paths):
+    for path in paths:
         receipt = upload(path)
-        receipts.append(_receipt(receipt["url"], receipt["width"], receipt["height"], index == 0))
+        receipts.append(_receipt(receipt["url"], receipt["width"], receipt["height"], False))
     return receipts
+
+
+def _mark_single_major(receipts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """合并后只允许一张主图：第一张标 major=True，其余一律 False。"""
+    for index, receipt in enumerate(receipts):
+        receipt["major"] = index == 0
+    return receipts
+
+
+def _resolve_default_price(price: float | None, draft: dict[str, Any]) -> bool:
+    """显式给出一口价时切到一口价(False)；不传价则沿用草稿的议价/一口价模式。"""
+    explicit = price is not None and price > 0
+    return False if explicit else bool(draft.get("defaultPrice", False))
 
 
 @command(
@@ -140,8 +153,12 @@ def edit(
     new_title, new_desc = _resolve_text(text, title, desc)
 
     price_dto = dict(draft.get("itemPriceDTO") or {})
-    if price is not None:
+    explicit_price = price is not None and price > 0
+    if explicit_price:
         price_dto["priceInCent"] = _cents(price)
+    # 定价模式与金额联动：显式给出一口价时，defaultPrice 必须切到一口价(False)，
+    # 否则草稿是议价(True) 时提交仍按议价走，金额被忽略；不传价则沿用草稿模式。
+    default_price = _resolve_default_price(price, draft)
     price_yuan = None
     if price_dto.get("priceInCent"):
         try:
@@ -151,21 +168,24 @@ def edit(
 
     # 2. 图片：替换 / 追加 / 沿用草稿
     # dry-run 阶段只校验本地路径并占位，不实际上传；上传放到 --confirm 提交前。
+    replace = bool(images)
+    existing = [] if replace else _draft_images(draft)
     local_paths = images or add_images or []
     for path in local_paths:
         validate_image_path(path)
 
+    # 先按最终张数校验，避免超限的图片先白耗上传额度。
+    if not 1 <= len(existing) + len(local_paths) <= 9:
+        raise GoofishError("商品必须有 1–9 张图片")
+
     if not confirm:
-        existing = [] if images else _draft_images(draft)
         image_list = existing + [{"pending_upload": p} for p in local_paths]
     elif images:
-        image_list = _upload_local(images)
+        image_list = _mark_single_major(_upload_local(images))
     elif add_images:
-        image_list = _draft_images(draft) + _upload_local(add_images)
+        image_list = _mark_single_major(existing + _upload_local(add_images))
     else:
-        image_list = _draft_images(draft)
-    if not 1 <= len(image_list) <= 9:
-        raise GoofishError("商品必须有 1–9 张图片")
+        image_list = existing
 
     cat = draft.get("itemCatDTO") or {}
     addr = draft.get("itemAddrDTO") or {}
@@ -200,7 +220,7 @@ def edit(
         "itemLabelExtList": draft.get("itemLabelExtList") or [],
         "itemGroupDTO": {"groupId": ""},
         "userRightsProtocols": [{"enable": False, "serviceCode": "SKILL_PLAY_NO_MIND"}],
-        "defaultPrice": draft.get("defaultPrice", False),
+        "defaultPrice": default_price,
     }
 
     if not confirm:
