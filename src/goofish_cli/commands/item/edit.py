@@ -14,18 +14,16 @@
 """
 from __future__ import annotations
 
-import json
 import time
 from decimal import Decimal, InvalidOperation
-from pathlib import Path
 from typing import Any
 
+from goofish_cli.commands.item.edit_detail import _rich_text_plain
+from goofish_cli.commands.media.upload import upload, validate_image_path
 from goofish_cli.core import Session, Strategy, command
 from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.mtop import call
 from goofish_cli.core.write_operation import write_operation
-from goofish_cli.commands.media.upload import upload, validate_image_path
-from goofish_cli.commands.item.edit_detail import _rich_text_plain
 
 
 def _cents(value: float) -> str:
@@ -76,6 +74,25 @@ def _draft_images(draft: dict[str, Any]) -> list[dict[str, Any]]:
     return out
 
 
+def _resolve_text(
+    text: dict[str, Any], override_title: str | None, override_desc: str | None
+) -> tuple[str, str]:
+    """从草稿解析标题/描述，叠加用户显式传入的覆盖值；为空则报错。"""
+    plain = _rich_text_plain(text.get("richTextDesc"))
+    paragraphs = [p for p in plain.split("\n") if p]
+    title = (text.get("title") or "").strip()
+    desc = (text.get("desc") or "").strip()
+    if not title and paragraphs:
+        title = paragraphs[0]
+    if not desc:
+        desc = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else plain
+    new_title = (override_title or "").strip() or title
+    new_desc = (override_desc or "").strip() or desc
+    if not new_title or not new_desc:
+        raise GoofishError("标题和描述不能为空")
+    return new_title, new_desc
+
+
 def _upload_local(paths: list[str]) -> list[dict[str, Any]]:
     receipts = []
     for index, path in enumerate(paths):
@@ -120,19 +137,7 @@ def edit(
         raise GoofishError("编辑草稿响应结构异常，未提交")
 
     text = draft.get("itemTextDTO") or {}
-    existing_plain = _rich_text_plain(text.get("richTextDesc"))
-    paragraphs = [p for p in existing_plain.split("\n") if p]
-    existing_title = (text.get("title") or "").strip()
-    existing_desc = (text.get("desc") or "").strip()
-    if not existing_title and paragraphs:
-        existing_title = paragraphs[0]
-    if not existing_desc:
-        existing_desc = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else existing_plain
-
-    new_title = (title or "").strip() or existing_title
-    new_desc = (desc or "").strip() or existing_desc
-    if not new_title or not new_desc:
-        raise GoofishError("标题和描述不能为空")
+    new_title, new_desc = _resolve_text(text, title, desc)
 
     price_dto = dict(draft.get("itemPriceDTO") or {})
     if price is not None:
