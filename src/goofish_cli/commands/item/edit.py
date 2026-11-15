@@ -24,7 +24,7 @@ from goofish_cli.core import Session, Strategy, command
 from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.mtop import call
 from goofish_cli.core.write_operation import write_operation
-from goofish_cli.commands.media.upload import upload
+from goofish_cli.commands.media.upload import upload, validate_image_path
 from goofish_cli.commands.item.edit_detail import _rich_text_plain
 
 
@@ -38,17 +38,28 @@ def _cents(value: float) -> str:
     return str(int(amount * 100))
 
 
+def _num(value: Any) -> int | None:
+    try:
+        return int(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
 def _receipt(url: str, width: Any, height: Any, major: bool) -> dict[str, Any]:
-    return {
+    receipt: dict[str, Any] = {
         "extraInfo": {"isH": "false", "isT": "false", "raw": "false"},
         "isQrCode": False,
         "url": url,
-        "heightSize": int(height),
-        "widthSize": int(width),
         "major": major,
         "type": 0,
         "status": "done",
     }
+    w, h = _num(width), _num(height)
+    if w is not None:
+        receipt["widthSize"] = w
+    if h is not None:
+        receipt["heightSize"] = h
+    return receipt
 
 
 def _draft_images(draft: dict[str, Any]) -> list[dict[str, Any]]:
@@ -111,8 +122,12 @@ def edit(
     text = draft.get("itemTextDTO") or {}
     existing_plain = _rich_text_plain(text.get("richTextDesc"))
     paragraphs = [p for p in existing_plain.split("\n") if p]
-    existing_title = paragraphs[0] if paragraphs else text.get("title") or ""
-    existing_desc = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else existing_plain
+    existing_title = (text.get("title") or "").strip()
+    existing_desc = (text.get("desc") or "").strip()
+    if not existing_title and paragraphs:
+        existing_title = paragraphs[0]
+    if not existing_desc:
+        existing_desc = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else existing_plain
 
     new_title = (title or "").strip() or existing_title
     new_desc = (desc or "").strip() or existing_desc
@@ -130,7 +145,15 @@ def edit(
             price_yuan = None
 
     # 2. 图片：替换 / 追加 / 沿用草稿
-    if images:
+    # dry-run 阶段只校验本地路径并占位，不实际上传；上传放到 --confirm 提交前。
+    local_paths = images or add_images or []
+    for path in local_paths:
+        validate_image_path(path)
+
+    if not confirm:
+        existing = [] if images else _draft_images(draft)
+        image_list = existing + [{"pending_upload": p} for p in local_paths]
+    elif images:
         image_list = _upload_local(images)
     elif add_images:
         image_list = _draft_images(draft) + _upload_local(add_images)

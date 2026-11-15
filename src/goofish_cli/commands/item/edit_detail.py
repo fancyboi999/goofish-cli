@@ -93,8 +93,10 @@ def edit_detail(item_id: str) -> dict[str, Any]:
         price_yuan = None
 
     paragraphs = [p for p in rich_plain.split("\n") if p]
-    title = paragraphs[0] if paragraphs else text.get("title") or ""
-    description = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else rich_plain
+    title = (text.get("title") or "").strip() or (paragraphs[0] if paragraphs else "")
+    description = (text.get("desc") or "").strip()
+    if not description:
+        description = "\n".join(paragraphs[1:]) if len(paragraphs) > 1 else rich_plain
 
     return {
         "item_id": str(data.get("itemId") or item_id),
