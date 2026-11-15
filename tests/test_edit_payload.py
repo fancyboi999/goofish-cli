@@ -10,6 +10,8 @@ from goofish_cli.commands.item.edit import (
     _mark_single_major,
     _receipt,
     _resolve_default_price,
+    _resolve_group_dto,
+    _resolve_protocols,
     _resolve_text,
 )
 from goofish_cli.commands.item.edit_detail import _images, _rich_text_plain
@@ -30,6 +32,38 @@ def test_cents_rejects_negative_and_extra_precision():
         _cents(1.234)
     with pytest.raises(GoofishError):
         _cents("not-a-number")  # type: ignore[arg-type]
+
+
+def test_cents_rejects_nan_and_infinite():
+    with pytest.raises(GoofishError):
+        _cents(float("nan"))
+    with pytest.raises(GoofishError):
+        _cents(float("inf"))
+
+
+# --- 分组 / 服务协议沿用草稿 ---
+
+def test_group_dto_keeps_draft_group():
+    draft = {"itemGroupDTO": {"groupId": "880123456", "groupName": "数码配件"}}
+    assert _resolve_group_dto(draft) == {"groupId": "880123456", "groupName": "数码配件"}
+
+
+def test_group_dto_falls_back_when_absent():
+    assert _resolve_group_dto({"itemGroupDTO": None}) == {"groupId": ""}
+    assert _resolve_group_dto({}) == {"groupId": ""}
+
+
+def test_protocols_keep_draft_listing():
+    draft = {"userRightsProtocols": [
+        {"serviceCode": "NONCONFORMITY_FREE_REFUND", "enable": "false"},
+        {"serviceCode": "FAST_DELIVERY_24_HOUR", "enable": "true"},
+    ]}
+    assert _resolve_protocols(draft) == draft["userRightsProtocols"]
+
+
+def test_protocols_empty_when_absent():
+    assert _resolve_protocols({"userRightsProtocols": None}) == []
+    assert _resolve_protocols({}) == []
 
 
 # --- 定价模式（一口价 / 议价）---

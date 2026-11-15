@@ -114,6 +114,18 @@ def _resolve_default_price(price: float | None, draft: dict[str, Any]) -> bool:
     return False if explicit else bool(draft.get("defaultPrice", False))
 
 
+def _resolve_group_dto(draft: dict[str, Any]) -> dict[str, Any]:
+    """沿用草稿的分组设置；草稿没有分组时回退空结构，绝不在提交时清空已有分组。"""
+    group = draft.get("itemGroupDTO")
+    return dict(group) if isinstance(group, dict) else {"groupId": ""}
+
+
+def _resolve_protocols(draft: dict[str, Any]) -> list[dict[str, Any]]:
+    """原样带过草稿勾选的服务协议，不重写成固定关闭某一项。"""
+    protocols = draft.get("userRightsProtocols")
+    return list(protocols) if isinstance(protocols, list) else []
+
+
 @command(
     namespace="item",
     name="edit",
@@ -153,9 +165,12 @@ def edit(
     new_title, new_desc = _resolve_text(text, title, desc)
 
     price_dto = dict(draft.get("itemPriceDTO") or {})
-    explicit_price = price is not None and price > 0
+    # 先校验所有显式给出的价格：负数 / NaN / 非法精度在此直接报错，
+    # 不能在"是否一口价"的过滤阶段被当成没传价，导致编辑报成功而价格没变。
+    price_cents = _cents(price) if price is not None else None
+    explicit_price = price_cents is not None and int(price_cents) > 0
     if explicit_price:
-        price_dto["priceInCent"] = _cents(price)
+        price_dto["priceInCent"] = price_cents
     # 定价模式与金额联动：显式给出一口价时，defaultPrice 必须切到一口价(False)，
     # 否则草稿是议价(True) 时提交仍按议价走，金额被忽略；不传价则沿用草稿模式。
     default_price = _resolve_default_price(price, draft)
@@ -218,8 +233,8 @@ def edit(
         },
         "itemPostFeeDTO": post,
         "itemLabelExtList": draft.get("itemLabelExtList") or [],
-        "itemGroupDTO": {"groupId": ""},
-        "userRightsProtocols": [{"enable": False, "serviceCode": "SKILL_PLAY_NO_MIND"}],
+        "itemGroupDTO": _resolve_group_dto(draft),
+        "userRightsProtocols": _resolve_protocols(draft),
         "defaultPrice": default_price,
     }
 
