@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.5](https://github.com/fancyboi999/goofish-cli/compare/v0.6.4...v0.6.5) (2026-11-18)
+
+
+### Bug Fixes
+
+* **category:** allow virtual categories without a Taobao category id ([#62](https://github.com/fancyboi999/goofish-cli/issues/62)) ([7e6a155](https://github.com/fancyboi999/goofish-cli/commit/7e6a1552759d2d0441426c7c72741cc36efcb1d8))
+
 ## [0.6.4](https://github.com/fancyboi999/goofish-cli/compare/v0.6.3...v0.6.4) (2026-11-14)
 
 
