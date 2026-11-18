@@ -1,6 +1,9 @@
 """验证 _build_publish_data 的 payload 构造 —— 关键字段防回归。"""
 
-from goofish_cli.commands.item.publish import _build_publish_data
+import pytest
+
+from goofish_cli.commands.item.publish import _build_publish_data, _category
+from goofish_cli.core.errors import GoofishError
 
 CAT = {"cat_id": "50106003", "cat_name": "男士毛呢大衣", "channel_cat_id": "126860482", "tb_cat_id": "50025883"}
 LOC = {
@@ -68,3 +71,21 @@ def test_location_mapped():
     assert addr["prov"] == "北京"
     assert addr["city"] == "北京"
     assert addr["gps"] == "116.4,39.9"
+
+
+def test_empty_tb_cat_id_sent_as_empty_string():
+    """虚拟类目没有淘宝类目；网页发布页对缺失的 tbCatId 提交空字符串。"""
+    cat = _build(cat_info={**CAT, "tb_cat_id": ""})["itemCatDTO"]
+    assert cat["tbCatId"] == ""
+    cat = _build(cat_info={k: v for k, v in CAT.items() if k != "tb_cat_id"})["itemCatDTO"]
+    assert cat["tbCatId"] == ""
+
+
+def test_category_validation_allows_empty_tb_cat_id():
+    _category({**CAT, "tb_cat_id": ""})
+    _category({k: v for k, v in CAT.items() if k != "tb_cat_id"})
+
+
+def test_category_validation_requires_channel_cat_id():
+    with pytest.raises(GoofishError, match="cat_id/cat_name/channel_cat_id"):
+        _category({**CAT, "channel_cat_id": ""})
