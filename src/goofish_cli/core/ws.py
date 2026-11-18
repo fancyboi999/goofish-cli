@@ -312,7 +312,7 @@ def cid_from_create_ack(ack: dict[str, Any] | None) -> str:
     """从 `/r/SingleChatConversation/create` 回包里取出真实会话 cid。
 
     创建成功时服务端把会话放在 body.singleChatConversation.cid（形如
-    `69571472022@goofish`）。只发 `cid=0` 直接发送会被服务端以 code=500 拒绝，
+    `<masked-cid>@goofish`）。只发 `cid=0` 直接发送会被服务端以 code=500 拒绝，
     所以新会话必须先拿到这个 cid 再发消息。
     """
     if not isinstance(ack, dict) or ack.get("code") != 200:

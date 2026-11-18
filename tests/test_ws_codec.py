@@ -20,16 +20,16 @@ from goofish_cli.core.ws import (
         (
             {
                 "code": 200,
-                "body": {"singleChatConversation": {"cid": "69571472022"}},
+                "body": {"singleChatConversation": {"cid": "created-cid"}},
             },
-            "69571472022",
+            "created-cid",
         ),
         (
             {
                 "code": 200,
-                "body": {"singleChatConversation": {"cid": "69571472022@goofish"}},
+                "body": {"singleChatConversation": {"cid": "created-cid@goofish"}},
             },
-            "69571472022",
+            "created-cid",
         ),
         ({"code": 500, "body": {"singleChatConversation": {"cid": "1"}}}, ""),
         ({"code": 200, "body": {}}, ""),
