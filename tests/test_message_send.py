@@ -68,6 +68,7 @@ def make_responder(
     push_vulcan: bool = True,
     send_code: int | None = 200,
     create_code: int | None = 200,
+    created_cid: str = "created-cid@goofish",
     message_id: str = "srv-1",
 ):
     def responder(frame: dict) -> list[dict]:
@@ -82,7 +83,13 @@ def make_responder(
         if lwp == "/r/SyncStatus/ackDiff":
             return [{"headers": {"mid": mid}, "code": ack_diff_code}]
         if lwp == CREATE_LWP:
-            return [] if create_code is None else [{"headers": {"mid": mid}, "code": create_code}]
+            if create_code is None:
+                return []
+            return [{
+                "headers": {"mid": mid},
+                "code": create_code,
+                "body": {"singleChatConversation": {"cid": created_cid}},
+            }]
         if lwp == SEND_LWP:
             if send_code is None:
                 return []
@@ -185,16 +192,26 @@ class TestSendAckFailures:
 class TestCreateChat:
     def test_item_id_creates_chat_before_sending(self, patched):
         ws = patched(FakeWS(make_responder()))
-        run_send(item_id="item-1")
+        out = run_send(item_id="item-1")
         order = ws.lwps()
         assert order.index(CREATE_LWP) < order.index(SEND_LWP)
+        assert out["cid"] == "created-cid"
+        send_frame = next(f for f in ws.sent if f.get("lwp") == SEND_LWP)
+        assert send_frame["body"][0]["cid"] == "created-cid@goofish"
 
-    def test_create_chat_without_ack_still_attempts_send(self, patched, monkeypatch):
-        """create-chat 没有回包时不应静默中止；发送仍要尝试并被校验。"""
+    def test_create_chat_without_ack_aborts_send(self, patched, monkeypatch):
+        """拿不到 create-chat ack 时无法确定真实 cid，不能继续发送。"""
         monkeypatch.setattr(send_mod, "recv_ack", _short_recv_ack)
         ws = patched(FakeWS(make_responder(create_code=None)))
-        run_send(item_id="item-1")
-        assert SEND_LWP in ws.lwps()
+        with pytest.raises(GoofishError, match="创建会话失败"):
+            run_send(item_id="item-1")
+        assert SEND_LWP not in ws.lwps()
+
+    def test_unknown_cid_without_item_id_aborts(self, patched):
+        ws = patched(FakeWS(make_responder()))
+        with pytest.raises(GoofishError, match="请传 --item-id"):
+            run_send(cid="0")
+        assert SEND_LWP not in ws.lwps()
 
 
 # --- 把真实实现的超时压到测试可接受的量级 ---

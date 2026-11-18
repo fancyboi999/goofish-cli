@@ -308,6 +308,39 @@ async def create_chat(ws: ClientConnection, *, myid: str, toid: str, item_id: st
     return mid
 
 
+def cid_from_create_ack(ack: dict[str, Any] | None) -> str:
+    """从 `/r/SingleChatConversation/create` 回包里取出真实会话 cid。
+
+    创建成功时服务端把会话放在 body.singleChatConversation.cid（形如
+    `<masked-cid>@goofish`）。只发 `cid=0` 直接发送会被服务端以 code=500 拒绝，
+    所以新会话必须先拿到这个 cid 再发消息。
+    """
+    if not isinstance(ack, dict) or ack.get("code") != 200:
+        return ""
+    body = ack.get("body") or {}
+    if not isinstance(body, dict):
+        return ""
+    conv = body.get("singleChatConversation") or {}
+    candidates = [
+        conv.get("cid") if isinstance(conv, dict) else None,
+        body.get("cid"),
+        body.get("sessionId"),
+        body.get("conversationId"),
+    ]
+    for msgs in (body.get("messages"), body.get("messageList")):
+        if isinstance(msgs, list):
+            for item in msgs:
+                if isinstance(item, dict):
+                    candidates.append(item.get("cid"))
+    if isinstance(body.get("lastMessage"), dict):
+        candidates.append(body["lastMessage"].get("cid"))
+    for raw in candidates:
+        if not raw:
+            continue
+        return str(raw).split("@")[0]
+    return ""
+
+
 async def collect_session_cids(session: Session, duration: float = 5.0) -> list[dict[str, Any]]:
     """连 WS + /reg + ackDiff(pts=0)，收 duration 秒，返回所有 push 到的 session cid。
 
