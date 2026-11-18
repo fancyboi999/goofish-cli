@@ -21,6 +21,7 @@ from typing import Any
 from goofish_cli.commands.item.edit_detail import _rich_text_plain
 from goofish_cli.commands.media.upload import upload, validate_image_path
 from goofish_cli.core import Session, Strategy, command
+from goofish_cli.core.banned_words import guard as guard_banned
 from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.mtop import call
 from goofish_cli.core.write_operation import write_operation
@@ -178,6 +179,8 @@ def edit(
 
     text = draft.get("itemTextDTO") or {}
     new_title, new_desc = _resolve_text(text, title, desc)
+    # 违禁词门禁：dry-run 与 --confirm 一视同仁，命中即中止。
+    guard_banned([new_title, new_desc])
 
     price_dto = dict(draft.get("itemPriceDTO") or {})
     # 先校验所有显式给出的价格：负数 / NaN / 非法精度在此直接报错，
@@ -217,6 +220,7 @@ def edit(
         image_list = existing
 
     cat = draft.get("itemCatDTO") or {}
+    guard_banned([new_title, new_desc, cat.get("catName", "")])
     addr = draft.get("itemAddrDTO") or {}
     post = draft.get("itemPostFeeDTO") or {}
 

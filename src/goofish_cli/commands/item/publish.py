@@ -13,6 +13,7 @@ from goofish_cli.commands.category.recommend import recommend
 from goofish_cli.commands.location.default import default as get_default_location
 from goofish_cli.commands.media.upload import upload, validate_image_path, validate_image_receipt
 from goofish_cli.core import Session, Strategy, command
+from goofish_cli.core.banned_words import guard as guard_banned
 from goofish_cli.core.errors import GoofishError, PartialResultError
 from goofish_cli.core.guard import watch
 from goofish_cli.core.mtop import call
@@ -45,6 +46,8 @@ def publish(
     # 所有确定性的输入错误在任何上传或经营提交前拒绝。
     if not title.strip() or not desc.strip():
         raise GoofishError("标题和描述不能为空")
+    # 违禁词门禁：标题/描述命中即中止，不进入上传与提交流程。
+    guard_banned([title, desc])
     _money(price)
     _money(post_price)
     if original_price is not None:
@@ -77,6 +80,7 @@ def publish(
             stage = "location"
             loc = loc if loc is not None else get_default_location()
             _category(cat)
+            guard_banned([title, desc, cat["cat_name"]])
             _address(loc)
             data = _build_publish_data(title=title, desc=desc, image_infos=infos, price=price,
                                        original_price=original_price, delivery=delivery,
