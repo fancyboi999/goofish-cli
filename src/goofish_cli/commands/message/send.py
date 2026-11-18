@@ -17,6 +17,7 @@ from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.token import get_access_token
 from goofish_cli.core.write_operation import write_operation
 from goofish_cli.core.ws import (
+    cid_from_create_ack,
     connect,
     create_chat,
     heartbeat_loop,
@@ -88,7 +89,23 @@ async def _send(
                 create_mid = await create_chat(
                     ws, myid=session.unb, toid=toid, item_id=item_id
                 )
-                await recv_ack(ws, create_mid)
+                create_ack = await recv_ack(ws, create_mid)
+                create_code = (create_ack or {}).get("code")
+                if create_code != 200:
+                    detail = (
+                        "无回包（超时）"
+                        if create_ack is None
+                        else f"code={create_code}"
+                    )
+                    raise GoofishError(f"创建会话失败：{detail}，未发送")
+                created_cid = cid_from_create_ack(create_ack)
+                if not created_cid:
+                    raise GoofishError("创建会话失败：回包里没有 cid，未发送")
+                cid = created_cid
+            elif cid in ("", "0"):
+                raise GoofishError(
+                    "未知会话 cid；新会话请传 --item-id 先创建单聊"
+                )
 
             if kind == "text":
                 if not text:

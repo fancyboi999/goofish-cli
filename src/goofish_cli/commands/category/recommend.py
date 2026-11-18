@@ -14,22 +14,24 @@ from goofish_cli.core.errors import GoofishError
 from goofish_cli.core.mtop import call
 
 
-def _selected_score(data: dict, predict: dict) -> tuple[float | None, str | None]:
-    explicit = predict.get("confidence")
-    if isinstance(explicit, (float, int)) and not isinstance(explicit, bool) and math.isfinite(explicit):
-        return float(explicit), "categoryPredictResult.confidence"
-    values = []
+def _finite(value: Any) -> float | None:
+    if isinstance(value, (float, int)) and not isinstance(value, bool) and math.isfinite(value):
+        return float(value)
+    return None
+
+
+def _clicked_candidate(data: dict) -> dict:
+    """分类卡片（propertyId -10000）里被选中的候选。
+
+    网页发布页以它为准，categoryPredictResult 只作兜底；虚拟类目（如「电子资料」）
+    的 categoryPredictResult 不带类目字段，选中身份只在候选里。
+    """
     for card in data.get("cardList") or []:
         body = card.get("cardData") or {}
-        if str(body.get("propertyId")) != "-10000":
-            continue
-        for candidate in body.get("valuesList") or []:
-            keys = ("channelCatId", "tbCatId", "catId")
-            if all(str(candidate.get(key)) == str(predict[key]) for key in keys if predict.get(key) is not None):
-                score = candidate.get("score")
-                if isinstance(score, (float, int)) and not isinstance(score, bool) and math.isfinite(score):
-                    values.append(float(score))
-    return (values[0], "classification_card.score") if len(values) == 1 else (None, None)
+        if str(body.get("propertyId")) == "-10000":
+            values = body.get("valuesList") or []
+            return next((v for v in values if str(v.get("isClicked")) == "1"), {})
+    return {}
 
 
 @command(
@@ -84,15 +86,29 @@ def recommend(
         version="2.0",
         spm_cnt="a21ybx.publish.0.0",
     )
-    predict = (raw.get("data", {}) or {}).get("categoryPredictResult", {}) or {}
-    if not predict.get("catId") or not predict.get("channelCatId") or not predict.get("tbCatId"):
+    data = raw.get("data", {}) or {}
+    predict = data.get("categoryPredictResult", {}) or {}
+    clicked = _clicked_candidate(data)
+    selected = {
+        key: clicked.get(key) or predict.get(key)
+        for key in ("catId", "catName", "channelCatId", "tbCatId")
+    }
+    # tbCatId 可以为空：虚拟/服务类目没有淘宝类目映射，网页端照常以空值发布。
+    if not selected["catId"] or not selected["catName"] or not selected["channelCatId"]:
         raise GoofishError("类目推荐响应缺少选中分类身份，不能继续自动发布", raw=raw)
-    score, source = _selected_score(raw.get("data") or {}, predict)
+    explicit = _finite(predict.get("confidence"))
+    clicked_score = _finite(clicked.get("score"))
+    if explicit is not None:
+        score, source = explicit, "categoryPredictResult.confidence"
+    elif clicked_score is not None:
+        score, source = clicked_score, "classification_card.score"
+    else:
+        score, source = None, None
     return {
-        "cat_id": str(predict.get("catId", "")),
-        "cat_name": predict.get("catName", ""),
-        "channel_cat_id": str(predict.get("channelCatId", "")),
-        "tb_cat_id": str(predict.get("tbCatId", "")),
+        "cat_id": str(selected["catId"]),
+        "cat_name": selected["catName"],
+        "channel_cat_id": str(selected["channelCatId"]),
+        "tb_cat_id": str(selected["tbCatId"] or ""),
         "confidence": score,
         "confidence_source": source,
         "confidence_kind": "model_score_not_calibrated_probability",

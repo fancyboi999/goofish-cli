@@ -136,7 +136,7 @@ for image in 本地图片路径:
 )
 ```
 
-发布也可用 `images=[本地路径, ...]` 自动上传，不能把 CDN URL 当本地路径。已提前上传时复用 `images_json`，避免重复上传。类目 DTO 必须包含 cat_id/cat_name/channel_cat_id/tb_cat_id，地址采用 selected 字段。缺少身份的类目不能猜补。模型分数不是校准概率，未知值为 null。
+发布也可用 `images=[本地路径, ...]` 自动上传，不能把 CDN URL 当本地路径。已提前上传时复用 `images_json`，避免重复上传。类目 DTO 必须包含 cat_id/cat_name/channel_cat_id；虚拟/服务类目的 tb_cat_id 可为空字符串，地址采用 selected 字段。缺少身份的类目不能猜补。模型分数不是校准概率，未知值为 null。
 
 成功返回 accepted 与 item_id 后，用 item_get 回读确认。失败返回的 images/category/location 可复用；submission_unknown 必须先核对自己的商品列表，禁止盲目重试。发布和下架共用 item.write 默认 1 次/分钟，上传独立 media.write 默认 9 次/分钟。
 
