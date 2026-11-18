@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.6.6](https://github.com/fancyboi999/goofish-cli/compare/v0.6.5...v0.6.6) (2026-11-18)
+
+
+### Bug Fixes
+
+* **message:** use created conversation cid when sending to a new chat ([#61](https://github.com/fancyboi999/goofish-cli/issues/61)) ([399f0b0](https://github.com/fancyboi999/goofish-cli/commit/399f0b046acb2b5ef3316a9bc4c294291d36c8ac))
+
 ## [0.6.5](https://github.com/fancyboi999/goofish-cli/compare/v0.6.4...v0.6.5) (2026-11-18)
 
 
