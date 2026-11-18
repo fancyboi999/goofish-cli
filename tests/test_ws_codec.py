@@ -3,12 +3,41 @@
 import base64
 import json
 
+import pytest
+
 from goofish_cli.core.ws import (
     build_ack,
+    cid_from_create_ack,
     extract_incoming_text,
     extract_meta_event,
     extract_push_message,
 )
+
+
+@pytest.mark.parametrize(
+    ("ack", "expected"),
+    [
+        (
+            {
+                "code": 200,
+                "body": {"singleChatConversation": {"cid": "69571472022"}},
+            },
+            "69571472022",
+        ),
+        (
+            {
+                "code": 200,
+                "body": {"singleChatConversation": {"cid": "69571472022@goofish"}},
+            },
+            "69571472022",
+        ),
+        ({"code": 500, "body": {"singleChatConversation": {"cid": "1"}}}, ""),
+        ({"code": 200, "body": {}}, ""),
+        (None, ""),
+    ],
+)
+def test_cid_from_create_ack(ack, expected):
+    assert cid_from_create_ack(ack) == expected
 
 
 def _wrap(data_str: str) -> dict:
