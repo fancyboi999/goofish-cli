@@ -13,7 +13,7 @@ category_recommend(
 )
 ```
 
-返回 `{cat_id, cat_name, channel_cat_id, tb_cat_id, confidence, confidence_source}`。confidence 为模型分数，不是校准概率；缺失为 null。
+返回 `{cat_id, cat_name, channel_cat_id, tb_cat_id, confidence, confidence_source}`。虚拟/服务类目（如「电子资料」）没有淘宝类目，tb_cat_id 为空字符串，网页端发布时也以空值提交。confidence 为模型分数，不是校准概率；缺失为 null。
 
 ## 结果处理
 
@@ -75,4 +75,4 @@ category_recommend(
 
 ## 本模块不调其它工具
 
-只调 `category_recommend`。不需要 `item_get` 也不需要反查——将完整类目 DTO 作为 category_json 传给 item_publish；缺少 cat_id/channel_cat_id/tb_cat_id 时不得猜补。
+只调 `category_recommend`。不需要 `item_get` 也不需要反查——将完整类目 DTO 作为 category_json 传给 item_publish；缺少 cat_id/cat_name/channel_cat_id 时不得猜补；tb_cat_id 为空是正常情况。

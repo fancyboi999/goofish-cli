@@ -122,8 +122,9 @@ def _money(value: float) -> str:
 
 
 def _category(value: Any) -> None:
-    if not isinstance(value, dict) or any(not value.get(k) for k in ("cat_id", "cat_name", "channel_cat_id", "tb_cat_id")):
-        raise GoofishError("已确认类目必须包含 cat_id/cat_name/channel_cat_id/tb_cat_id")
+    # tb_cat_id 可为空：虚拟/服务类目没有淘宝类目映射。
+    if not isinstance(value, dict) or any(not value.get(k) for k in ("cat_id", "cat_name", "channel_cat_id")):
+        raise GoofishError("已确认类目必须包含 cat_id/cat_name/channel_cat_id")
 
 
 def _address(value: Any) -> dict:
@@ -216,7 +217,7 @@ def _build_publish_data(
             "catId": cat_info["cat_id"],
             "catName": cat_info["cat_name"],
             "channelCatId": cat_info["channel_cat_id"],
-            "tbCatId": cat_info["tb_cat_id"],
+            "tbCatId": cat_info.get("tb_cat_id") or "",
         },
         "onlyTakeSelf": can_self_pickup,
         "uniqueCode": cat_info.get("unique_code") or str(time.time_ns() // 1000),
