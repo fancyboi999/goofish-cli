@@ -51,3 +51,6 @@ Thumbs.db
 
 # npm / ClawHub package artifacts
 *.tgz
+
+# 本地询价/会话抓取数据（含聊天记录与日志，不入库）
+x1_inquiry/
