@@ -1,6 +1,5 @@
 """订单发货纯逻辑单测：返回码分类、秘钥池、内容模板、先标记后发内容决策。"""
 
-import pytest
 
 from goofish_cli.core.order import (
     build_message,

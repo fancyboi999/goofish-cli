@@ -201,6 +201,8 @@ $ goofish list-commands --format table
 | `auth reset-guard` | 手动解除风控熔断 | ❌ |
 | `item get` | 查询闲鱼商品详情 | ❌ |
 | `item publish` | 发布商品（自动识别类目 + 默认地址） | ✅ |
+| `item edit` | 编辑已有商品（改标题/描述/价格/图片，默认 dry-run） | ✅ |
+| `item edit-detail` | 查看当前可编辑草稿（编辑前回显） | ❌ |
 | `item delete` | 下架/删除商品 | ✅ |
 | `media upload` | 上传图片到闲鱼 CDN | ✅ |
 | `category recommend` | AI 识别商品类目 | ❌ |
@@ -212,6 +214,32 @@ $ goofish list-commands --format table
 | `message send` | 发送文本/图片 | ✅ |
 | `message watch` | 常驻 IM 长连（JSONL 输出） | ❌ |
 
+</details>
+
+<details>
+<summary><b><code>goofish item edit</code></b> — 编辑已有商品（改标题 / 描述 / 价格 / 图片）</summary>
+
+默认 dry-run：拉草稿、组装提交报文、返回预览，不真正保存；加 `--confirm` 才提交。
+
+```bash
+# 改价格：0 表示切议价（与 publish 的 price<=0 语义一致）
+goofish item edit 123456 --price 99.9
+goofish item edit 123456 --price 99.9 --confirm
+
+# 改文案：两个文本参数都不传时原样沿用草稿 DTO，只改价/图不会重排线上排版
+goofish item edit 123456 --title "新标题" --desc "新描述" --confirm
+
+# 图片全量替换：每个路径都要带一次 --images（单值参数，空格分隔会报 unexpected extra argument）
+goofish item edit 123456 --images a.jpg --images b.jpg --confirm
+
+# 追加图片（在草稿现有图后追加）
+goofish item edit 123456 --add-images c.jpg --confirm
+```
+
+提交失败分三态：`not_submitted`（上传或准备阶段失败，未提交，可安全重试）、
+`submission_rejected`（平台明确拒绝）、`submission_unknown`（超时/断连/响应缺 itemId，
+平台可能已保存）。后者返回 `requires_readback`，先用 `item get` 核对再决定；
+不要自动重试，`--add-images` 重试会重复追加图片。
 </details>
 
 会话读取使用真实消息时间，而非会话创建时间：

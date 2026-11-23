@@ -10,7 +10,6 @@
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 
 from goofish_cli.core.errors import GoofishError
@@ -77,9 +76,8 @@ def check_banned_words(
     hits: list[str] = []
     for word in [*BANNED_WORDS, *(extra or [])]:
         wl = word.lower()
-        if wl in lowered or wl in squashed_lower:
-            if word not in hits:
-                hits.append(word)
+        if (wl in lowered or wl in squashed_lower) and word not in hits:
+            hits.append(word)
     return hits
 
 

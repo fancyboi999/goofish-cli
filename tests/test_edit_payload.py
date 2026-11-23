@@ -5,6 +5,7 @@ import json
 import pytest
 
 from goofish_cli.commands.item.edit import (
+    _build_text_dto,
     _cents,
     _draft_images,
     _image_mode,
@@ -14,6 +15,7 @@ from goofish_cli.commands.item.edit import (
     _resolve_group_dto,
     _resolve_protocols,
     _resolve_text,
+    _resolve_unique_code,
 )
 from goofish_cli.commands.item.edit_detail import _images, _rich_text_plain
 from goofish_cli.core.errors import GoofishError
@@ -78,8 +80,51 @@ def test_default_price_switches_to_fixed_when_price_given():
 def test_default_price_keeps_draft_mode_when_no_price():
     assert _resolve_default_price(None, {"defaultPrice": True}) is True
     assert _resolve_default_price(None, {"defaultPrice": False}) is False
-    # 价格为 0 视为不更新定价，沿用草稿
+
+
+def test_default_price_zero_switches_to_bargain():
+    # 与 publish 的 price<=0 语义一致：0 代表议价，而不是"不更新定价"。
+    assert _resolve_default_price(0, {"defaultPrice": False}) is True
     assert _resolve_default_price(0, {"defaultPrice": True}) is True
+
+
+# --- 提交文本 DTO ---
+
+
+def test_text_dto_passes_draft_through_when_no_override():
+    """未传 --title/--desc 时原样带回草稿 DTO，不重排富文本（空段/格式不丢）。"""
+    draft_text = {
+        "title": "标题",
+        "desc": "",
+        "richTextDesc": json.dumps([{"type": "Text", "text": "标题"}, {"type": "Text", "text": ""}, {"type": "Text", "text": "正文"}]),
+        "titleDescSeparate": False,
+    }
+    dto = _build_text_dto(draft_text, None, None, "标题", "正文")
+    assert dto == draft_text
+    assert dto["richTextDesc"] == draft_text["richTextDesc"]
+    assert dto["titleDescSeparate"] is False
+
+
+def test_text_dto_rebuilds_only_on_explicit_override():
+    dto = _build_text_dto({"title": "旧", "desc": "旧描述"}, "新标题", None, "新标题", "旧描述")
+    assert dto == {"title": "新标题", "desc": "旧描述", "titleDescSeparate": True}
+
+
+def test_text_dto_empty_draft_falls_back_to_rebuild():
+    dto = _build_text_dto({}, None, None, "标题", "描述")
+    assert dto == {"title": "标题", "desc": "描述", "titleDescSeparate": True}
+
+
+# --- uniqueCode ---
+
+
+def test_unique_code_prefers_draft_value():
+    """草稿带 uniqueCode 时沿用（可能是乐观锁字段，自造新值会绕过并发保护）。"""
+    assert _resolve_unique_code({"uniqueCode": "draft-123"}) == "draft-123"
+
+
+def test_unique_code_generates_when_draft_missing():
+    assert _resolve_unique_code({}).isdigit()
 
 
 # --- 图片收据 ---

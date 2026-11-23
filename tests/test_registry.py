@@ -15,6 +15,8 @@ def test_discover_all_commands():
         "item.get",
         "item.delete",
         "item.publish",
+        "item.edit",
+        "item.edit-detail",
         "media.upload",
         "category.recommend",
         "location.default",
@@ -29,5 +31,7 @@ def test_write_commands_marked():
     r = registry()
     assert r["item.delete"].write is True
     assert r["item.publish"].write is True
+    assert r["item.edit"].write is True
+    assert r["item.edit-detail"].write is False
     assert r["media.upload"].write is True
     assert r["item.get"].write is False

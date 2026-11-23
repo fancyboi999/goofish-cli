@@ -6,9 +6,11 @@
 - 默认 dry-run：只拉草稿、组装提交报文并返回预览，不真正提交。
 - 必须显式传 --confirm 才会调用写接口；不传的任何改动都不会落到线上。
 - 以 editDetail 回显草稿为基底，只覆盖用户显式传入的字段；未传的沿用草稿。
+- 提交结果未知（超时/断连/响应无 itemId）时抛 PartialResultError，
+  调用方拿到 submission_unknown + requires_readback，不得自动重试。
 
 图片两种模式：
-- --images a.jpg b.jpg：全量替换为这些本地图（先上传）。
+- --images a.jpg --images b.jpg：全量替换为这些本地图（先上传，重复传入才生效）。
 - --add-images c.jpg：在现有草稿图片后追加（先上传）。
 - 都不传：保留草稿现有图片。
 """
@@ -22,7 +24,7 @@ from goofish_cli.commands.item.edit_detail import _rich_text_plain
 from goofish_cli.commands.media.upload import upload, validate_image_path
 from goofish_cli.core import Session, Strategy, command
 from goofish_cli.core.banned_words import guard as guard_banned
-from goofish_cli.core.errors import GoofishError
+from goofish_cli.core.errors import GoofishError, PartialResultError
 from goofish_cli.core.mtop import call
 from goofish_cli.core.write_operation import write_operation
 
@@ -78,7 +80,10 @@ def _draft_images(draft: dict[str, Any]) -> list[dict[str, Any]]:
 def _resolve_text(
     text: dict[str, Any], override_title: str | None, override_desc: str | None
 ) -> tuple[str, str]:
-    """从草稿解析标题/描述，叠加用户显式传入的覆盖值；为空则报错。"""
+    """从草稿解析标题/描述，叠加用户显式传入的覆盖值；为空则报错。
+
+    结果用于回显与违禁词门禁；真正提交用的 DTO 由 _build_text_dto 决定。
+    """
     plain = _rich_text_plain(text.get("richTextDesc"))
     paragraphs = [p for p in plain.split("\n") if p]
     title = (text.get("title") or "").strip()
@@ -92,6 +97,24 @@ def _resolve_text(
     if not new_title or not new_desc:
         raise GoofishError("标题和描述不能为空")
     return new_title, new_desc
+
+
+def _build_text_dto(
+    text: dict[str, Any],
+    override_title: str | None,
+    override_desc: str | None,
+    resolved_title: str,
+    resolved_desc: str,
+) -> dict[str, Any]:
+    """组装提交用的 itemTextDTO。
+
+    两个文本参数都没传时原样带回草稿 DTO：富文本转纯文本会丢空段与格式，
+    只改价格/图片的编辑不该顺手把线上文案重排一遍。只有显式覆盖任一字段，
+    才用解析后的标题/描述重新组装。
+    """
+    if override_title is None and override_desc is None and isinstance(text, dict) and text:
+        return dict(text)
+    return {"title": resolved_title, "desc": resolved_desc, "titleDescSeparate": True}
 
 
 def _upload_local(paths: list[str]) -> list[dict[str, Any]]:
@@ -125,9 +148,10 @@ def _image_mode(
 
 
 def _resolve_default_price(price: float | None, draft: dict[str, Any]) -> bool:
-    """显式给出一口价时切到一口价(False)；不传价则沿用草稿的议价/一口价模式。"""
-    explicit = price is not None and price > 0
-    return False if explicit else bool(draft.get("defaultPrice", False))
+    """显式 --price<=0 切议价(True)；--price>0 切一口价(False)；不传价沿用草稿模式。"""
+    if price is None:
+        return bool(draft.get("defaultPrice", False))
+    return price <= 0
 
 
 def _resolve_group_dto(draft: dict[str, Any]) -> dict[str, Any]:
@@ -140,6 +164,59 @@ def _resolve_protocols(draft: dict[str, Any]) -> list[dict[str, Any]]:
     """原样带过草稿勾选的服务协议，不重写成固定关闭某一项。"""
     protocols = draft.get("userRightsProtocols")
     return list(protocols) if isinstance(protocols, list) else []
+
+
+def _resolve_unique_code(draft: dict[str, Any]) -> str:
+    """优先沿用草稿返回的 uniqueCode：若是乐观锁字段，自行新生成会绕过并发保护。"""
+    value = draft.get("uniqueCode")
+    if value:
+        return str(value)
+    return str(time.time_ns() // 1000)
+
+
+def _build_edit_data(
+    *,
+    item_id: str,
+    draft: dict[str, Any],
+    text_dto: dict[str, Any],
+    image_list: list[dict[str, Any]],
+    price_dto: dict[str, Any],
+    default_price: bool,
+) -> dict[str, Any]:
+    """组装提交报文（字段对齐前端 build：publish/edit 同构）。"""
+    cat = draft.get("itemCatDTO") or {}
+    addr = draft.get("itemAddrDTO") or {}
+    post = draft.get("itemPostFeeDTO") or {}
+    return {
+        "itemId": str(item_id),
+        "itemTypeStr": draft.get("itemTypeStr", "b"),
+        "quantity": draft.get("quantity", "1"),
+        "simpleItem": draft.get("simpleItem", "true"),
+        "freebies": draft.get("freebies", False),
+        "editorVersion": "",
+        "uniqueCode": _resolve_unique_code(draft),
+        "sourceId": "pcMainPublish",
+        "bizcode": "pcMainPublish",
+        "publishScene": "pcMainPublish",
+        "itemTextDTO": text_dto,
+        "imageInfoDOList": image_list,
+        "itemPriceDTO": price_dto,
+        "itemCatDTO": {
+            "catId": cat.get("catId", ""), "catName": cat.get("catName", ""),
+            "channelCatId": cat.get("channelCatId", ""), "tbCatId": cat.get("tbCatId", ""),
+        },
+        "itemAddrDTO": {
+            "area": addr.get("area", ""), "city": addr.get("city", ""),
+            "divisionId": addr.get("divisionId", ""), "gps": addr.get("gps", ""),
+            "poiId": addr.get("poiId", ""), "poiName": addr.get("poiName", ""),
+            "prov": addr.get("prov", ""),
+        },
+        "itemPostFeeDTO": post,
+        "itemLabelExtList": draft.get("itemLabelExtList") or [],
+        "itemGroupDTO": _resolve_group_dto(draft),
+        "userRightsProtocols": _resolve_protocols(draft),
+        "defaultPrice": default_price,
+    }
 
 
 @command(
@@ -183,14 +260,15 @@ def edit(
     guard_banned([new_title, new_desc])
 
     price_dto = dict(draft.get("itemPriceDTO") or {})
-    # 先校验所有显式给出的价格：负数 / NaN / 非法精度在此直接报错，
-    # 不能在"是否一口价"的过滤阶段被当成没传价，导致编辑报成功而价格没变。
+    # 先校验所有显式给出的价格：负数 / NaN / 非法精度在此直接报错。
     price_cents = _cents(price) if price is not None else None
-    explicit_price = price_cents is not None and int(price_cents) > 0
-    if explicit_price:
+    if price_cents == "0":
+        # 与 publish 的 price<=0 语义一致：切议价，移除草稿价格，避免"0 元"被当成真实报价。
+        price_dto.pop("priceInCent", None)
+    elif price_cents is not None:
         price_dto["priceInCent"] = price_cents
-    # 定价模式与金额联动：显式给出一口价时，defaultPrice 必须切到一口价(False)，
-    # 否则草稿是议价(True) 时提交仍按议价走，金额被忽略；不传价则沿用草稿模式。
+    # 定价模式与金额联动：显式给出一口价时 defaultPrice 必须切到一口价(False)，
+    # 否则草稿是议价(True) 时提交仍按议价走，金额被忽略。
     default_price = _resolve_default_price(price, draft)
     price_yuan = None
     if price_dto.get("priceInCent"):
@@ -210,53 +288,17 @@ def edit(
     if not 1 <= len(existing) + len(local_paths) <= 9:
         raise GoofishError("商品必须有 1–9 张图片")
 
-    if not confirm:
-        image_list = existing + [{"pending_upload": p} for p in local_paths]
-    elif images:
-        image_list = _mark_single_major(_upload_local(images))
-    elif add_images:
-        image_list = _mark_single_major(existing + _upload_local(add_images))
-    else:
-        image_list = existing
-
     cat = draft.get("itemCatDTO") or {}
     guard_banned([new_title, new_desc, cat.get("catName", "")])
-    addr = draft.get("itemAddrDTO") or {}
-    post = draft.get("itemPostFeeDTO") or {}
 
-    # 3. 组装提交报文（字段对齐前端 build：publish/edit 同构）
-    data: dict[str, Any] = {
-        "itemId": str(item_id),
-        "itemTypeStr": draft.get("itemTypeStr", "b"),
-        "quantity": draft.get("quantity", "1"),
-        "simpleItem": draft.get("simpleItem", "true"),
-        "freebies": draft.get("freebies", False),
-        "editorVersion": "",
-        "uniqueCode": str(time.time_ns() // 1000),
-        "sourceId": "pcMainPublish",
-        "bizcode": "pcMainPublish",
-        "publishScene": "pcMainPublish",
-        "itemTextDTO": {"title": new_title, "desc": new_desc, "titleDescSeparate": True},
-        "imageInfoDOList": image_list,
-        "itemPriceDTO": price_dto,
-        "itemCatDTO": {
-            "catId": cat.get("catId", ""), "catName": cat.get("catName", ""),
-            "channelCatId": cat.get("channelCatId", ""), "tbCatId": cat.get("tbCatId", ""),
-        },
-        "itemAddrDTO": {
-            "area": addr.get("area", ""), "city": addr.get("city", ""),
-            "divisionId": addr.get("divisionId", ""), "gps": addr.get("gps", ""),
-            "poiId": addr.get("poiId", ""), "poiName": addr.get("poiName", ""),
-            "prov": addr.get("prov", ""),
-        },
-        "itemPostFeeDTO": post,
-        "itemLabelExtList": draft.get("itemLabelExtList") or [],
-        "itemGroupDTO": _resolve_group_dto(draft),
-        "userRightsProtocols": _resolve_protocols(draft),
-        "defaultPrice": default_price,
-    }
+    text_dto = _build_text_dto(text, title, desc, new_title, new_desc)
 
     if not confirm:
+        image_list = existing + [{"pending_upload": p} for p in local_paths]
+        data = _build_edit_data(
+            item_id=item_id, draft=draft, text_dto=text_dto, image_list=image_list,
+            price_dto=price_dto, default_price=default_price,
+        )
         return {
             "item_id": str(item_id),
             "ok": True,
@@ -270,24 +312,67 @@ def edit(
             "message": "dry-run：报文已组装，未提交；加 --confirm 才真正保存",
         }
 
-    with write_operation(session, "item.write"):
-        raw = call(
-            session,
-            api="mtop.idle.pc.idleitem.edit",
-            data=data,
-            version="1.0",
-            spm_cnt="a21ybx.publish.0.0",
+    # 3. 上传 + 提交：两者都可能半途失败，需要结构化状态而不是裸异常。
+    stage = "upload"
+    attempted = False
+    image_list = existing
+    try:
+        if images:
+            image_list = _mark_single_major(_upload_local(images))
+        elif add_images:
+            image_list = _mark_single_major(existing + _upload_local(add_images))
+        stage = "submit"
+        data = _build_edit_data(
+            item_id=item_id, draft=draft, text_dto=text_dto, image_list=image_list,
+            price_dto=price_dto, default_price=default_price,
         )
-    result = raw.get("data") if isinstance(raw, dict) else None
-    ret = raw.get("ret") if isinstance(raw, dict) else []
-    ok = isinstance(result, dict) and (result.get("itemId") or result.get("success"))
+        with write_operation(session, "item.write"):
+            attempted = True
+            raw = call(
+                session,
+                api="mtop.idle.pc.idleitem.edit",
+                data=data,
+                version="1.0",
+                spm_cnt="a21ybx.publish.0.0",
+            )
+        result = raw.get("data") if isinstance(raw, dict) else None
+        ret = raw.get("ret") if isinstance(raw, dict) else []
+        # ret 成功但没有 itemId/success 同样是"结果未知"：平台可能已保存，
+        # 与 publish 的 missing_item_id 保持同一判定。
+        if not isinstance(result, dict) or not (result.get("itemId") or result.get("success")):
+            raise ValueError("missing_item_id")
+    except (GoofishError, OSError, ValueError, TypeError, AttributeError) as exc:
+        unknown = attempted and not isinstance(exc, GoofishError)
+        status = "submission_unknown" if unknown else "submission_rejected" if attempted else "not_submitted"
+        if unknown:
+            message = "编辑结果未知；先核对商品是否已改动，勿自动重复提交（--add-images 重试会重复追加图片）"
+        elif isinstance(exc, GoofishError):
+            message = str(exc)
+        elif attempted:
+            message = "编辑提交响应结构或连接失败，结果未知，请核对商品"
+        else:
+            message = "图片上传或编辑准备阶段失败，未提交"
+        progress = {
+            "item_id": str(item_id),
+            "title": new_title,
+            "image_count": len(image_list),
+            "status": status,
+            "failed_stage": stage,
+            "requires_readback": unknown,
+        }
+        error = {"error_type": type(exc).__name__, "phase": stage, "submission_status": status}
+        if hasattr(exc, "retry_after"):
+            error["retry_after"] = exc.retry_after
+        raise PartialResultError(message, progress, error, exit_code=getattr(exc, "exit_code", 1)) from exc
+
     return {
         "item_id": str(item_id),
-        "ok": bool(ok),
+        "ok": True,
         "title": new_title,
         "price": price_yuan,
         "image_count": len(image_list),
-        "status": "accepted" if ok else "rejected",
+        "status": "accepted",
+        "requires_readback": True,
         "ret": ret,
         "raw": result,
     }

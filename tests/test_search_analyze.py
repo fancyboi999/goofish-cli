@@ -4,7 +4,6 @@ from goofish_cli.commands.search.analyze import (
     advise,
     median,
     parse_price,
-    percentile,
     price_band,
 )
 
