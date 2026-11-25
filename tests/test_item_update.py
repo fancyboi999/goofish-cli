@@ -106,8 +106,32 @@ def test_edit_detail_empty_rejected(monkeypatch):
         update("1104168284060", price=59)
 
 
-def test_lead_item_platform_rejection_translated(monkeypatch, tmp_path):
-    """服务类目被平台拒绝时给中文提示，不掩盖原始错误码。"""
+def test_lead_item_falls_back_to_lead_edit_api(monkeypatch, tmp_path):
+    """PC 链路拒绝线索宝贝时，自动回退到 mtop.idle.idleitem.edit 通用链路。"""
+    monkeypatch.setenv("GOOFISH_LIMITER_PATH", str(tmp_path / "limiter.json"))
+    monkeypatch.setenv("GOOFISH_GUARD_PATH", str(tmp_path / "circuit.json"))
+    calls = []
+
+    def fake_call(session, api, data, **kwargs):
+        calls.append(api)
+        if api.endswith("editDetail"):
+            return _detail_response()
+        if api == update_mod._EDIT_API:
+            # 真实 mtop.call 对失败 ret 是抛异常而非返回值
+            raise GoofishError("[mtop.idle.pc.idleitem.edit] 调用失败："
+                               "FAIL_BIZ_LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH::线索宝贝类目，禁止当前链路编辑")
+        return {"ret": ["SUCCESS::调用成功"], "data": {}}
+
+    monkeypatch.setattr(update_mod, "call", fake_call)
+    monkeypatch.setattr(update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1"))))
+    result = update("1104168284060", price=59)
+    assert update_mod._LEAD_EDIT_API in calls
+    assert calls.index(update_mod._LEAD_EDIT_API) == len(calls) - 1
+    assert result["ok"] is True
+
+
+def test_lead_item_both_paths_rejected(monkeypatch, tmp_path):
+    """两条链路都拒绝时，保留原始错误不掩盖。"""
     monkeypatch.setenv("GOOFISH_LIMITER_PATH", str(tmp_path / "limiter.json"))
     monkeypatch.setenv("GOOFISH_GUARD_PATH", str(tmp_path / "circuit.json"))
 

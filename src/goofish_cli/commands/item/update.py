@@ -1,7 +1,9 @@
 """item update — 修改在售商品价格（元，内部转分）。
 
 流程：editDetail（读取编辑页全量）→ 回写差异字段（仅价格）→ edit
-接口：mtop.idle.pc.idleitem.editDetail v1.0（只读）+ mtop.idle.pc.idleitem.edit v1.0（写操作）
+接口：mtop.idle.pc.idleitem.editDetail v1.0（只读）+ mtop.idle.pc.idleitem.edit v1.0（写操作）；
+线索宝贝（服务类目）PC 链路被拒（LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH）时
+自动回退 mtop.idle.idleitem.edit v1.0（不带 pc 段的通用编辑链路，实测可用）。
 
 为什么不做「全量重建」：editDetail 返回的是编辑页当前可编辑数据，
 原样回传再覆写 itemPriceDTO.priceInCent，其余字段保持服务端当前值，
@@ -24,6 +26,12 @@ _SCENE_FIELDS = {
     "bizcode": "pcMainPublish",
     "publishScene": "pcMainPublish",
 }
+
+# 常规商品的 PC 编辑链路（原路径，行为不变）。
+_EDIT_API = "mtop.idle.pc.idleitem.edit"
+# 线索宝贝（服务类目）的通用编辑链路：PC 链路会报
+# LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH，此接口实测（同价 no-op）可用。
+_LEAD_EDIT_API = "mtop.idle.idleitem.edit"
 
 
 @command(
@@ -66,19 +74,44 @@ def update(item_id: str, *, price: float | None = None, dry_run: bool = False) -
         raise GoofishError("editDetail 返回为空，无法构造编辑 payload")
     payload = _build_edit_payload(detail, item_id=str(item_id), price_cents=cents)
     with write_operation(session, "item.write"):
-        raw = call(
-            session,
-            api="mtop.idle.pc.idleitem.edit",
-            data=payload,
-            version="1.0",
-            spm_cnt="a21ybx.publish.0.0",
-        )
-    ret = raw.get("ret") or []
-    joined = " | ".join(ret)
-    if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" in joined:
-        # 平台限制：线索宝贝（服务类目）禁止 PC 编辑链路，仅 APP 可编辑。
-        raise GoofishError("该商品是线索宝贝（服务类目），闲鱼网页端不支持编辑/改价；"
-                           "请在闲鱼 App 内修改，或下架后重新发布。原始错误：" + joined)
+        try:
+            raw = call(
+                session,
+                api=_EDIT_API,
+                data=payload,
+                version="1.0",
+                spm_cnt="a21ybx.publish.0.0",
+            )
+        except GoofishError as exc:
+            # call() 对非 SUCCESS ret 会抛错；仅线索宝贝拒绝码才触发回退，
+            # 其他错误（风控/参数/网络）原样抛出。
+            if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" not in str(exc):
+                raise
+            raw = {"ret": [str(exc)]}
+        ret = raw.get("ret") or []
+        joined = " | ".join(ret)
+        if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" in joined:
+            # 线索宝贝（服务类目）禁止 PC 链路编辑，但平台允许走通用编辑链路：
+            # mtop.idle.idleitem.edit（不带 pc 段）对线索宝贝实测可用（同价 no-op 探测
+            # 返回 SUCCESS），普通商品不触发此回退、保持原 PC 路径不变。
+            try:
+                raw = call(
+                    session,
+                    api=_LEAD_EDIT_API,
+                    data=payload,
+                    version="1.0",
+                    spm_cnt="a21ybx.publish.0.0",
+                )
+            except GoofishError as exc:
+                if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" not in str(exc):
+                    raise
+                raise GoofishError("该商品是线索宝贝（服务类目），PC 与通用编辑链路均被平台拒绝；"
+                                   "请在闲鱼 App 内修改，或下架后重新发布。原始错误：" + str(exc)) from exc
+            ret = raw.get("ret") or []
+            joined = " | ".join(ret)
+            if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" in joined:
+                raise GoofishError("该商品是线索宝贝（服务类目），PC 与通用编辑链路均被平台拒绝；"
+                                   "请在闲鱼 App 内修改，或下架后重新发布。原始错误：" + joined)
     old_cents = str((detail.get("itemPriceDTO") or {}).get("priceInCent", ""))
     return {
         "item_id": str(item_id),
