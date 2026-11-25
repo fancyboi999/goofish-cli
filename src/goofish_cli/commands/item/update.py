@@ -18,7 +18,9 @@ imageInfoDOList（第一个 = 首图 major=true）。
 import json
 import time
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
+
+import typer
 
 from goofish_cli.commands.item.publish import _money
 from goofish_cli.commands.media.upload import upload as media_upload
@@ -63,7 +65,7 @@ def update(
     title: str | None = None,
     desc: str | None = None,
     desc_file: str | None = None,
-    images: list[str] | None = None,
+    images: Annotated[list[str] | None, typer.Option()] = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     desc_text = _resolve_desc(desc, desc_file)
@@ -218,6 +220,51 @@ def _validate_images(paths: list[str]) -> list[Path] | None:
     return resolved
 
 
+def _sync_item_text(text_dto: dict[str, Any], *, title: str | None, desc: str | None) -> dict[str, Any]:
+    """改 title/desc 时同步派生字段（richTextDesc / desc / wlDescription）。
+
+    editDetail 的 itemTextDTO 里 titleDescSeparate=false：richTextDesc 第一个
+    Element 是标题文本，其余 Element 是描述行；desc = 标题 + "\n" + 描述行；
+    wlDescription = 标题 + desc。只改 title/desc 两个键平台不生效（实测），
+    必须把这三个派生字段一起回写。
+    """
+    old_title = str(text_dto.get("title") or "")
+    old_desc = str(text_dto.get("desc") or "")
+    # desc 是否内嵌标题：titleDescSeparate=false 的商品 desc 首行是标题
+    # （实测线索宝贝如此）；separate=true 的商品 desc 不含标题，不得强加前缀。
+    has_title_prefix = bool(old_title) and old_desc.startswith(old_title)
+    body = old_desc[len(old_title):].lstrip("\n") if has_title_prefix else old_desc
+    new_title = title if title is not None else old_title
+    new_body = desc if desc is not None else body
+    out = dict(text_dto)
+    out["title"] = new_title
+    out["desc"] = f"{new_title}\n{new_body}".rstrip("\n") if has_title_prefix else new_body
+    out["wlDescription"] = new_title + out["desc"]
+    # richTextDesc：保留原 Element 结构模板，重建文本节点
+    template: dict[str, Any] = {}
+    lines = [new_title] + [ln for ln in new_body.split("\n")]
+    raw_rtd = out.get("richTextDesc")
+    if isinstance(raw_rtd, str) and raw_rtd.strip():
+        try:
+            rtd = json.loads(raw_rtd)
+            children = rtd.get("children") if isinstance(rtd, dict) else None
+            if children:
+                template = children[0]
+        except (ValueError, TypeError):
+            template = {}
+    if not template:
+        template = {"type": "Element", "children": [{"type": "Text", "text": "", "properties": {}}], "properties": {}}
+    elements = []
+    for ln in lines:
+        el = json.loads(json.dumps(template))
+        texts = [c for c in el.get("children") or [] if isinstance(c, dict)]
+        if texts:
+            texts[0]["text"] = ln
+        elements.append(el)
+    out["richTextDesc"] = json.dumps({"type": None, "children": elements, "properties": {}}, ensure_ascii=False)
+    return out
+
+
 def _build_edit_payload(
     detail: dict[str, Any],
     *,
@@ -230,13 +277,10 @@ def _build_edit_payload(
     """从 editDetail 全量构造 edit 请求体：除传入字段外逐字段保持原值。"""
     data = json.loads(json.dumps(detail))
     data["itemId"] = str(item_id)
-    text_dto = dict(data.get("itemTextDTO") or {})
-    if title is not None:
-        text_dto["title"] = title
-    if desc is not None:
-        text_dto["desc"] = desc
     if title is not None or desc is not None:
-        data["itemTextDTO"] = text_dto
+        data["itemTextDTO"] = _sync_item_text(
+            data.get("itemTextDTO") or {}, title=title, desc=desc,
+        )
     if price_cents is not None:
         price_dto = dict(data.get("itemPriceDTO") or {})
         price_dto["priceInCent"] = str(price_cents)

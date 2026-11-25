@@ -1,5 +1,6 @@
 """验证 item update —— 元→分换算、dry-run 不发请求、只改价格时其它字段不变。"""
 
+import json
 from pathlib import Path
 from unittest.mock import MagicMock
 
@@ -260,6 +261,7 @@ def test_title_only_change_keeps_others(tmp_path, monkeypatch):
     assert result["ok"] is True
     payload = calls[1][1]
     assert payload["itemTextDTO"]["title"] == "新标题"
+    # 派生字段同步：desc 无标题前缀（separate 场景），只改标题时 desc 不动
     assert payload["itemTextDTO"]["desc"] == DETAIL["itemTextDTO"]["desc"]
     # 只改标题：价格、图片、类目、地址逐字节保持
     assert payload["itemPriceDTO"] == DETAIL["itemPriceDTO"]
@@ -280,7 +282,11 @@ def test_build_edit_payload_with_all_fields():
         desc="D",
         image_receipts=receipts,
     )
-    assert payload["itemTextDTO"] == {"title": "T", "desc": "D"}
+    assert payload["itemTextDTO"]["title"] == "T"
+    assert payload["itemTextDTO"]["desc"] == "D"  # separate 场景：desc 不加标题前缀
+    assert "新标题" not in payload["itemTextDTO"]["richTextDesc"]
+    rtd = json.loads(payload["itemTextDTO"]["richTextDesc"])
+    assert [c["children"][0]["text"] for c in rtd["children"]] == ["T", "D"]
     assert payload["itemPriceDTO"]["priceInCent"] == "5900"
     assert payload["imageInfoDOList"][0]["major"] is True
     assert payload["itemCatDTO"] == DETAIL["itemCatDTO"]
@@ -324,3 +330,37 @@ def test_price_cent_conversion_unchanged_for_extended_fields(tmp_path, monkeypat
     )
     update("1104168284060", price=80.01, title="T")
     assert calls[1][1]["itemPriceDTO"]["priceInCent"] == "8001"
+
+
+def test_sync_item_text_rebuilds_derived_fields():
+    text_dto = {
+        "title": "旧标题",
+        "desc": "旧标题\n第一行\n第二行",
+        "wlDescription": "旧标题旧标题\n第一行\n第二行",
+        "titleDescSeparate": "false",
+        "richTextDesc": '{"type":null,"children":[{"type":"Element","children":[{"type":"Text","text":"旧标题","properties":{}}],"properties":{}},{"type":"Element","children":[{"type":"Text","text":"第一行","properties":{}}],"properties":{}}],"properties":{}}',
+    }
+    out = update_mod._sync_item_text(text_dto, title="新标题", desc=None)
+    assert out["title"] == "新标题"
+    assert out["desc"] == "新标题\n第一行\n第二行"
+    assert out["wlDescription"].startswith("新标题新标题")
+    rtd = json.loads(out["richTextDesc"])
+    texts = [c["children"][0]["text"] for c in rtd["children"]]
+    assert texts[0] == "新标题"
+    assert texts[1:] == ["第一行", "第二行"]
+    # 只改 desc（desc 不含标题前缀的场景）：标题保持，desc 不加前缀
+    out_noprefix = update_mod._sync_item_text(
+        {"title": "旧标题", "desc": "纯描述正文"}, title=None, desc="新描述",
+    )
+    assert out_noprefix["title"] == "旧标题"
+    assert out_noprefix["desc"] == "新描述"
+
+
+def test_build_payload_with_title_keeps_desc_derived_consistent():
+    # desc 含标题前缀的场景（titleDescSeparate=false）：标题改变时 desc 首行同步
+    detail = json.loads(json.dumps(DETAIL))
+    detail["itemTextDTO"]["desc"] = "Python代做\n长期接单"
+    payload = _build_edit_payload(detail, item_id="1104168284060", title="T2")
+    assert payload["itemTextDTO"]["title"] == "T2"
+    assert payload["itemTextDTO"]["desc"].startswith("T2")
+    assert payload["itemTextDTO"]["desc"].endswith("长期接单")
