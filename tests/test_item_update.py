@@ -104,3 +104,20 @@ def test_edit_detail_empty_rejected(monkeypatch):
     monkeypatch.setattr(update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1"))))
     with pytest.raises(GoofishError):
         update("1104168284060", price=59)
+
+
+def test_lead_item_platform_rejection_translated(monkeypatch, tmp_path):
+    """服务类目被平台拒绝时给中文提示，不掩盖原始错误码。"""
+    monkeypatch.setenv("GOOFISH_LIMITER_PATH", str(tmp_path / "limiter.json"))
+    monkeypatch.setenv("GOOFISH_GUARD_PATH", str(tmp_path / "circuit.json"))
+
+    def fake_call(session, api, data, **kwargs):
+        if api.endswith("editDetail"):
+            return _detail_response()
+        return {"ret": ["FAIL_BIZ_LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH::线索宝贝类目，"
+                        "禁止当前链路编辑，请通过我发布列表-编辑进入发布器进行编辑"]}
+
+    monkeypatch.setattr(update_mod, "call", fake_call)
+    monkeypatch.setattr(update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1"))))
+    with pytest.raises(GoofishError, match="线索宝贝"):
+        update("1104168284060", price=59)

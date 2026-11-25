@@ -74,6 +74,11 @@ def update(item_id: str, *, price: float | None = None, dry_run: bool = False) -
             spm_cnt="a21ybx.publish.0.0",
         )
     ret = raw.get("ret") or []
+    joined = " | ".join(ret)
+    if "LEAD_ITEM_NOT_SUPPORT_CURRENT_EDIT_PATH" in joined:
+        # 平台限制：线索宝贝（服务类目）禁止 PC 编辑链路，仅 APP 可编辑。
+        raise GoofishError("该商品是线索宝贝（服务类目），闲鱼网页端不支持编辑/改价；"
+                           "请在闲鱼 App 内修改，或下架后重新发布。原始错误：" + joined)
     old_cents = str((detail.get("itemPriceDTO") or {}).get("priceInCent", ""))
     return {
         "item_id": str(item_id),
@@ -81,7 +86,7 @@ def update(item_id: str, *, price: float | None = None, dry_run: bool = False) -
         "new_price": price,
         "priceInCent": cents,
         "ok": any("SUCCESS" in r for r in ret),
-        "message": " | ".join(ret),
+        "message": joined,
     }
 
 
