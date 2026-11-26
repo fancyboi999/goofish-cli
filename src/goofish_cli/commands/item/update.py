@@ -65,7 +65,7 @@ def update(
     title: str | None = None,
     desc: str | None = None,
     desc_file: str | None = None,
-    images: Annotated[list[str] | None, typer.Option()] = None,
+    images: Annotated[list[str] | None, typer.Option(help="1~9 张：--images a.png b.jpg；也支持重复 --images")] = None,
     dry_run: bool = False,
 ) -> dict[str, Any]:
     desc_text = _resolve_desc(desc, desc_file)
@@ -118,7 +118,7 @@ def update(
     if not isinstance(detail, dict) or not detail:
         raise GoofishError("editDetail 返回为空，无法构造编辑 payload")
     # 在售闸门：edit 提交带发布语义，「editDetail 原样回传」不能保留上下架状态
-    # （作者实测：已下架商品编辑一次后 itemStatus 1→0、quantity 0→1，重新变成在售）。
+    # （review 复测：已下架商品编辑一次后 itemStatus 1→0、quantity 0→1，重新变成在售）。
     # 实测语义：在售 itemStatus="0"，已下架 itemStatus="1"。
     item_status = str(detail.get("itemStatus") or "").strip()
     if item_status != "0":
@@ -239,8 +239,7 @@ def _sync_item_text(text_dto: dict[str, Any], *, title: str | None, desc: str | 
     不用 desc.startswith(title) 前缀猜测——描述开头恰好重复标题的分离式商品会被误删。
     内嵌时 desc = 标题 + 恰好一个 "\\n" + 描述正文：拆分只去掉这一个 "\\n"，不做
     lstrip/rstrip（空行与末尾换行逐字节保留）；wlDescription = 标题 + desc。
-    richTextDesc：深拷贝原结构，只替换 Text 节点的 text，顶层键（version/type/
-    properties）与图片、格式等非文本节点原样保留，不重建。
+    richTextDesc：只改标题时保留正文结构；改描述时按纯文本行重建。
     """
     old_title = str(text_dto.get("title") or "")
     old_desc = str(text_dto.get("desc") or "")
@@ -265,13 +264,9 @@ def _sync_item_text(text_dto: dict[str, Any], *, title: str | None, desc: str | 
 
 def _rewrite_rich_text(raw_rtd: Any, *, embedded: bool, new_title: str, new_body: str,
                        body_changed: bool) -> Any:
-    """只替换 richTextDesc 里的文本节点，结构与顶层键原样保留。
-
-    内嵌标题商品：第一个 Element 的文本 = 新标题，其余 Element 依次对应描述行。
-    分离式商品：只在描述本身变化时按顺序替换文本节点；只改标题则 richTextDesc
-    原样返回（其内不含标题）。行数多于元素时克隆最后一个纯文本元素追加，
-    少于元素时多余纯文本元素清空文本（含图片/格式节点的元素不动）。
-    """
+    """只改标题时保留正文；改描述时按行重建纯文本元素。"""
+    if not body_changed and not embedded:
+        return raw_rtd
     if isinstance(raw_rtd, str) and raw_rtd.strip():
         try:
             rtd = json.loads(raw_rtd)
@@ -283,32 +278,18 @@ def _rewrite_rich_text(raw_rtd: Any, *, embedded: bool, new_title: str, new_body
         return raw_rtd
     out = json.loads(json.dumps(rtd))  # 深拷贝：version/properties 等顶层键原样保留
     children = out.get("children")
-    if not isinstance(children, list) or not children:
-        return out
-    elements = [c for c in children if isinstance(c, dict)]
-    if embedded:
-        lines = [new_title, *new_body.split("\n")]
-    elif not body_changed:
-        return out
+    if not body_changed:
+        if not isinstance(children, list) or not children:
+            return raw_rtd
+        if isinstance(children[0], dict) and children[0].get("type") == "Element":
+            _set_element_text(children[0], new_title)
     else:
-        lines = new_body.split("\n")
-    for el, line in zip(elements, lines, strict=False):
-        _set_element_text(el, line)
-    if len(lines) > len(elements):
-        template = None
-        for el in reversed(elements):
-            if _pure_text_element(el):
-                template = el
-                break
-        if template is not None:
-            extra = [json.loads(json.dumps(template)) for _ in lines[len(elements):]]
-            for el, line in zip(extra, lines[len(elements):], strict=False):
-                _set_element_text(el, line)
-            out["children"] = children + extra
-    elif len(lines) < len(elements):
-        for el in elements[len(lines):]:
-            if _pure_text_element(el):
-                _set_element_text(el, "")
+        lines = ([new_title] if embedded else []) + new_body.split("\n")
+        out["children"] = [
+            {"type": "Element", "children": [{"type": "Text", "text": line, "properties": {}}],
+             "properties": {}}
+            for line in lines
+        ]
     if isinstance(raw_rtd, str):
         return json.dumps(out, ensure_ascii=False)
     return out
@@ -319,15 +300,6 @@ def _set_element_text(element: dict[str, Any], text: str) -> None:
         if isinstance(child, dict) and child.get("type") == "Text":
             child["text"] = text
             return
-
-
-def _pure_text_element(element: dict[str, Any]) -> bool:
-    children = element.get("children")
-    if not isinstance(children, list) or not children:
-        return False
-    return all(
-        isinstance(c, dict) and c.get("type") == "Text" for c in children
-    )
 
 
 def _build_edit_payload(

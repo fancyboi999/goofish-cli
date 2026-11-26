@@ -7,6 +7,7 @@ from typing import Annotated
 
 import typer
 from loguru import logger
+from typer.core import TyperCommand
 
 from goofish_cli.core import GoofishError, iter_commands
 from goofish_cli.core.errors import PartialResultError
@@ -21,6 +22,28 @@ app = typer.Typer(
     add_completion=False,
 )
 app.add_typer(sandbox_app, name="sandbox")
+
+
+class _ItemUpdateCommand(TyperCommand):
+    """将 --images 后连续的路径展开为 Typer 的重复选项。"""
+
+    def parse_args(self, ctx, args):
+        expanded = []
+        in_images = False
+        for arg in args:
+            if arg == "--images":
+                in_images = True
+                expanded.append(arg)
+            elif arg.startswith("-"):
+                in_images = False
+                expanded.append(arg)
+            elif in_images:
+                if expanded[-1] != "--images":
+                    expanded.append("--images")
+                expanded.append(arg)
+            else:
+                expanded.append(arg)
+        return super().parse_args(ctx, expanded)
 
 
 def _format_option() -> typer.Option:
@@ -97,7 +120,8 @@ def build_app() -> typer.Typer:
             add_completion=False,
         )
         for cmd in cmds:
-            sub.command(name=cmd.name, help=cmd.description)(_wrap(cmd))
+            cls = _ItemUpdateCommand if (cmd.namespace, cmd.name) == ("item", "update") else None
+            sub.command(name=cmd.name, help=cmd.description, cls=cls)(_wrap(cmd))
         subs[ns] = sub
         app.add_typer(sub, name=ns)
 

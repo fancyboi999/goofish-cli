@@ -82,6 +82,14 @@ goofish message watch                               # 实时接收消息
 goofish message send <cid> <toid> --text "在的"    # 发消息
 ```
 
+更新在售商品的多张图片（1–9 张，首张为封面；也支持重复 `--images`）：
+
+```bash
+goofish item update 12345 --images a.png b.jpg c.webp --dry-run
+```
+
+先预览差异；去掉 `--dry-run` 才会上传图片并提交修改。
+
 ### 不占用桌面的沙箱模式
 
 需要运行中的本机 Docker Desktop / Docker Engine。安装支持沙箱的版本后，先在终端执行：

@@ -29,6 +29,53 @@ def _detail_response(detail=DETAIL):
     return {"ret": ["SUCCESS::调用成功"], "data": dict(detail)}
 
 
+@pytest.mark.parametrize("body", [
+    [{"type": "Element", "children": [{"type": "Text", "text": "价格"}, {"type": "Text", "text": "50"}, {"type": "Text", "text": "元"}]}],
+    [{"type": "Image", "url": "image"}, {"type": "Element", "children": [{"type": "Text", "text": "第一行"}]}, {"type": "Element", "children": [{"type": "Text", "text": "第二行"}]}],
+])
+def test_title_only_preserves_rich_body(body):
+    children = [{"type": "Element", "children": [{"type": "Text", "text": "旧标题"}]}] + body
+    raw = json.dumps({"version": "1.0", "children": children}, ensure_ascii=False)
+    dto = {"title": "旧标题", "desc": "旧标题\n价格50元\n第二行", "titleDescSeparate": "false", "richTextDesc": raw}
+    result = json.loads(update_mod._sync_item_text(dto, title="新标题", desc=None)["richTextDesc"])
+    assert result["children"][0]["children"][0]["text"] == "新标题"
+    assert json.dumps(result["children"][1:], ensure_ascii=False) == json.dumps(body, ensure_ascii=False)
+
+
+def test_cli_images_space_separated(tmp_path):
+    from typer.testing import CliRunner
+
+    from goofish_cli.cli import app
+
+    paths = [tmp_path / "a.png", tmp_path / "b.jpg", tmp_path / "c.webp"]
+    for path in paths:
+        path.write_bytes(b"x")
+    result = CliRunner().invoke(app, ["item", "update", "123", "--images", *map(str, paths), "--dry-run", "--format", "json"])
+    assert result.exit_code == 0, result.output
+    result_data = json.loads(result.output)
+    assert result_data["would_overwrite"]["imageInfoDOList"] == [{"source": str(path)} for path in paths]
+    repeated = CliRunner().invoke(app, ["item", "update", "123", "--images", str(paths[0]), "--images", str(paths[1]), "--dry-run", "--format", "json"])
+    assert repeated.exit_code == 0, repeated.output
+    assert len(json.loads(repeated.output)["would_overwrite"]["imageInfoDOList"]) == 2
+    excessive = CliRunner().invoke(app, ["item", "update", "123", "--images", *([str(paths[0])] * 10), "--dry-run"])
+    assert excessive.exit_code != 0
+    assert "数量" in excessive.output
+
+
+def test_description_rebuilds_plain_elements():
+    raw = {"version": "1.0", "children": [{"type": "Image"}]}
+    result = update_mod._rewrite_rich_text(raw, embedded=True, new_title="新", new_body="一\n二\n", body_changed=True)
+    assert result["version"] == "1.0"
+    assert [element["children"][0]["text"] for element in result["children"]] == ["新", "一", "二", ""]
+    assert all(len(element["children"]) == 1 for element in result["children"])
+    assert raw["children"] == [{"type": "Image"}]
+
+
+def test_separate_title_keeps_raw_rich_text_byte_for_byte():
+    raw = '{ "version": "1.0", "children": [] }'
+    assert update_mod._rewrite_rich_text(raw, embedded=False, new_title="新", new_body="", body_changed=False) == raw
+
+
 def test_money_yuan_to_cent():
     assert update_mod._money(59) == "5900"
     assert update_mod._money(59.5) == "5950"
