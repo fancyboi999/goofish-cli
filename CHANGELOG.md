@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.7.0](https://github.com/fancyboi999/goofish-cli/compare/v0.6.6...v0.7.0) (2026-11-26)
+
+
+### Features
+
+* **item:** item update 支持改标题/描述/图片（编辑商品全能力） ([#66](https://github.com/fancyboi999/goofish-cli/issues/66)) ([8fdf84c](https://github.com/fancyboi999/goofish-cli/commit/8fdf84c6abd77d446616e82f56fa6c971b98973f))
+
 ## [0.6.6](https://github.com/fancyboi999/goofish-cli/compare/v0.6.5...v0.6.6) (2026-11-18)
 
 
