@@ -101,8 +101,6 @@ def update(
         return {
             "item_id": str(item_id),
             "dry_run": True,
-            "new_price": price,
-            "priceInCent": cents,
             "would_overwrite": would,
             "changed": {},
             "ok": None,
@@ -119,16 +117,26 @@ def update(
     detail = detail_raw.get("data") if isinstance(detail_raw, dict) else None
     if not isinstance(detail, dict) or not detail:
         raise GoofishError("editDetail 返回为空，无法构造编辑 payload")
-    receipts = [media_upload(str(p)) for p in image_paths] if image_paths is not None else None
-    payload = _build_edit_payload(
-        detail,
-        item_id=str(item_id),
-        price_cents=cents,
-        title=title,
-        desc=desc_text,
-        image_receipts=receipts,
-    )
+    # 在售闸门：edit 提交带发布语义，「editDetail 原样回传」不能保留上下架状态
+    # （作者实测：已下架商品编辑一次后 itemStatus 1→0、quantity 0→1，重新变成在售）。
+    # 实测语义：在售 itemStatus="0"，已下架 itemStatus="1"。
+    item_status = str(detail.get("itemStatus") or "").strip()
+    if item_status != "0":
+        raise GoofishError(
+            f"商品 {item_id} 当前不是在售状态（itemStatus={item_status or '缺失'}），"
+            "编辑会把已下架商品重新上架；请先上架或在 App 内修改。"
+        )
     with write_operation(session, "item.write"):
+        # 图片上传放在限流检查之后：被限流/熔断拒绝时不白传。
+        receipts = [media_upload(str(p)) for p in image_paths] if image_paths is not None else None
+        payload = _build_edit_payload(
+            detail,
+            item_id=str(item_id),
+            price_cents=cents,
+            title=title,
+            desc=desc_text,
+            image_receipts=receipts,
+        )
         try:
             raw = call(
                 session,
@@ -172,8 +180,12 @@ def update(
     changed: dict[str, Any] = {}
     if title is not None:
         changed["title"] = {"old": old_text.get("title"), "new": title}
-    if desc_text is not None:
-        changed["desc"] = {"old": old_text.get("desc"), "new": desc_text}
+    if desc_text is not None or (title is not None and str((detail.get("itemTextDTO") or {}).get("titleDescSeparate") or "").strip().lower() == "false"):
+        # 口径一致：old/new 都用平台最终格式（内嵌标题商品 desc 含标题前缀）
+        changed["desc"] = {
+            "old": old_text.get("desc"),
+            "new": payload["itemTextDTO"]["desc"],
+        }
     if cents is not None:
         old_cents = str((detail.get("itemPriceDTO") or {}).get("priceInCent", ""))
         changed["price"] = {
@@ -223,46 +235,99 @@ def _validate_images(paths: list[str]) -> list[Path] | None:
 def _sync_item_text(text_dto: dict[str, Any], *, title: str | None, desc: str | None) -> dict[str, Any]:
     """改 title/desc 时同步派生字段（richTextDesc / desc / wlDescription）。
 
-    editDetail 的 itemTextDTO 里 titleDescSeparate=false：richTextDesc 第一个
-    Element 是标题文本，其余 Element 是描述行；desc = 标题 + "\n" + 描述行；
-    wlDescription = 标题 + desc。只改 title/desc 两个键平台不生效（实测），
-    必须把这三个派生字段一起回写。
+    是否内嵌标题由 editDetail 的 itemTextDTO.titleDescSeparate 决定（实测 "false"），
+    不用 desc.startswith(title) 前缀猜测——描述开头恰好重复标题的分离式商品会被误删。
+    内嵌时 desc = 标题 + 恰好一个 "\\n" + 描述正文：拆分只去掉这一个 "\\n"，不做
+    lstrip/rstrip（空行与末尾换行逐字节保留）；wlDescription = 标题 + desc。
+    richTextDesc：深拷贝原结构，只替换 Text 节点的 text，顶层键（version/type/
+    properties）与图片、格式等非文本节点原样保留，不重建。
     """
     old_title = str(text_dto.get("title") or "")
     old_desc = str(text_dto.get("desc") or "")
-    # desc 是否内嵌标题：titleDescSeparate=false 的商品 desc 首行是标题
-    # （实测线索宝贝如此）；separate=true 的商品 desc 不含标题，不得强加前缀。
-    has_title_prefix = bool(old_title) and old_desc.startswith(old_title)
-    body = old_desc[len(old_title):].lstrip("\n") if has_title_prefix else old_desc
+    embedded = str(text_dto.get("titleDescSeparate") or "").strip().lower() == "false"
+    if embedded and old_title and old_desc.startswith(old_title):
+        after = old_desc[len(old_title):]
+        body = after[1:] if after.startswith("\n") else after
+    else:
+        embedded = False
+        body = old_desc
     new_title = title if title is not None else old_title
     new_body = desc if desc is not None else body
     out = dict(text_dto)
     out["title"] = new_title
-    out["desc"] = f"{new_title}\n{new_body}".rstrip("\n") if has_title_prefix else new_body
+    out["desc"] = f"{new_title}\n{new_body}" if embedded else new_body
     out["wlDescription"] = new_title + out["desc"]
-    # richTextDesc：保留原 Element 结构模板，重建文本节点
-    template: dict[str, Any] = {}
-    lines = [new_title] + [ln for ln in new_body.split("\n")]
-    raw_rtd = out.get("richTextDesc")
+    out["richTextDesc"] = _rewrite_rich_text(out.get("richTextDesc"), embedded=embedded,
+                                             new_title=new_title, new_body=new_body,
+                                             body_changed=desc is not None)
+    return out
+
+
+def _rewrite_rich_text(raw_rtd: Any, *, embedded: bool, new_title: str, new_body: str,
+                       body_changed: bool) -> Any:
+    """只替换 richTextDesc 里的文本节点，结构与顶层键原样保留。
+
+    内嵌标题商品：第一个 Element 的文本 = 新标题，其余 Element 依次对应描述行。
+    分离式商品：只在描述本身变化时按顺序替换文本节点；只改标题则 richTextDesc
+    原样返回（其内不含标题）。行数多于元素时克隆最后一个纯文本元素追加，
+    少于元素时多余纯文本元素清空文本（含图片/格式节点的元素不动）。
+    """
     if isinstance(raw_rtd, str) and raw_rtd.strip():
         try:
             rtd = json.loads(raw_rtd)
-            children = rtd.get("children") if isinstance(rtd, dict) else None
-            if children:
-                template = children[0]
         except (ValueError, TypeError):
-            template = {}
-    if not template:
-        template = {"type": "Element", "children": [{"type": "Text", "text": "", "properties": {}}], "properties": {}}
-    elements = []
-    for ln in lines:
-        el = json.loads(json.dumps(template))
-        texts = [c for c in el.get("children") or [] if isinstance(c, dict)]
-        if texts:
-            texts[0]["text"] = ln
-        elements.append(el)
-    out["richTextDesc"] = json.dumps({"type": None, "children": elements, "properties": {}}, ensure_ascii=False)
+            rtd = None
+    else:
+        rtd = raw_rtd if isinstance(raw_rtd, dict) else None
+    if not isinstance(rtd, dict):
+        return raw_rtd
+    out = json.loads(json.dumps(rtd))  # 深拷贝：version/properties 等顶层键原样保留
+    children = out.get("children")
+    if not isinstance(children, list) or not children:
+        return out
+    elements = [c for c in children if isinstance(c, dict)]
+    if embedded:
+        lines = [new_title, *new_body.split("\n")]
+    elif not body_changed:
+        return out
+    else:
+        lines = new_body.split("\n")
+    for el, line in zip(elements, lines, strict=False):
+        _set_element_text(el, line)
+    if len(lines) > len(elements):
+        template = None
+        for el in reversed(elements):
+            if _pure_text_element(el):
+                template = el
+                break
+        if template is not None:
+            extra = [json.loads(json.dumps(template)) for _ in lines[len(elements):]]
+            for el, line in zip(extra, lines[len(elements):], strict=False):
+                _set_element_text(el, line)
+            out["children"] = children + extra
+    elif len(lines) < len(elements):
+        for el in elements[len(lines):]:
+            if _pure_text_element(el):
+                _set_element_text(el, "")
+    if isinstance(raw_rtd, str):
+        return json.dumps(out, ensure_ascii=False)
     return out
+
+
+def _set_element_text(element: dict[str, Any], text: str) -> None:
+    for child in element.get("children") or []:
+        if isinstance(child, dict) and child.get("type") == "Text":
+            child["text"] = text
+            return
+
+
+def _pure_text_element(element: dict[str, Any]) -> bool:
+    children = element.get("children")
+    if not isinstance(children, list) or not children:
+        return False
+    return all(
+        isinstance(c, dict) and c.get("type") == "Text" for c in children
+    )
 
 
 def _build_edit_payload(

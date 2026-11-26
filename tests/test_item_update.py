@@ -12,7 +12,8 @@ from goofish_cli.core.errors import GoofishError
 
 DETAIL = {
     "itemId": "1104168284060",
-    "itemStatus": "1",
+    "itemStatus": "0",
+    "quantity": "1",
     "simpleItem": "true",
     "itemTextDTO": {"title": "Python代做", "desc": "长期接单"},
     "itemPriceDTO": {"priceInCent": "8000", "origPriceInCent": "0"},
@@ -50,7 +51,7 @@ def test_dry_run_sends_no_request(monkeypatch):
     monkeypatch.setattr(update_mod, "Session", MagicMock(load=load_mock))
     result = update("1104168284060", price=59, dry_run=True)
     assert result["dry_run"] is True
-    assert result["priceInCent"] == "5900"
+    assert "new_price" not in result and "priceInCent" not in result
     assert result["would_overwrite"]["itemPriceDTO"]["priceInCent"] == "5900"
     call_mock.assert_not_called()
     load_mock.assert_not_called()
@@ -194,11 +195,13 @@ def test_no_field_given_rejected():
         update("1104168284060")
 
 
-def test_images_validation():
+def test_images_validation(tmp_path):
+    bad = tmp_path / "not_image.txt"
+    bad.write_text("x", encoding="utf-8")
     with pytest.raises(GoofishError, match="格式"):
-        update("1104168284060", images=["/etc/hostname"])  # 存在但非图片扩展名
+        update("1104168284060", images=[str(bad)])  # 存在但非图片扩展名
     with pytest.raises(GoofishError, match="不存在"):
-        update("1104168284060", images=["/no/such/x.png"])
+        update("1104168284060", images=[str(tmp_path / "no_such_x.png")])
 
 
 def test_images_order_and_first_is_major(tmp_path, monkeypatch):
@@ -273,9 +276,11 @@ def test_title_only_change_keeps_others(tmp_path, monkeypatch):
 
 
 def test_build_edit_payload_with_all_fields():
+    detail = json.loads(json.dumps(DETAIL))
+    detail["itemTextDTO"]["titleDescSeparate"] = "true"
     receipts = [{"url": "https://cdn/n.png", "width": 1, "height": 1}]
     payload = _build_edit_payload(
-        DETAIL,
+        detail,
         item_id="1104168284060",
         price_cents="5900",
         title="T",
@@ -284,9 +289,7 @@ def test_build_edit_payload_with_all_fields():
     )
     assert payload["itemTextDTO"]["title"] == "T"
     assert payload["itemTextDTO"]["desc"] == "D"  # separate 场景：desc 不加标题前缀
-    assert "新标题" not in payload["itemTextDTO"]["richTextDesc"]
-    rtd = json.loads(payload["itemTextDTO"]["richTextDesc"])
-    assert [c["children"][0]["text"] for c in rtd["children"]] == ["T", "D"]
+    assert payload["itemTextDTO"]["richTextDesc"] is None  # 无 richTextDesc 时不动
     assert payload["itemPriceDTO"]["priceInCent"] == "5900"
     assert payload["imageInfoDOList"][0]["major"] is True
     assert payload["itemCatDTO"] == DETAIL["itemCatDTO"]
@@ -333,21 +336,29 @@ def test_price_cent_conversion_unchanged_for_extended_fields(tmp_path, monkeypat
 
 
 def test_sync_item_text_rebuilds_derived_fields():
+    rtd_orig = '{"children":[{"type":"Element","children":[{"type":"Text","text":"旧标题","properties":{}}],"properties":{}},{"type":"Element","children":[{"type":"Image","properties":{"url":"https://cdn/i.png"}},{"type":"Text","text":"第一行","properties":{}}],"properties":{}}],"version":"1.0","properties":{}}'
     text_dto = {
         "title": "旧标题",
-        "desc": "旧标题\n第一行\n第二行",
-        "wlDescription": "旧标题旧标题\n第一行\n第二行",
+        "desc": "旧标题\n第一行",
+        "wlDescription": "旧标题旧标题\n第一行",
         "titleDescSeparate": "false",
-        "richTextDesc": '{"type":null,"children":[{"type":"Element","children":[{"type":"Text","text":"旧标题","properties":{}}],"properties":{}},{"type":"Element","children":[{"type":"Text","text":"第一行","properties":{}}],"properties":{}}],"properties":{}}',
+        "richTextDesc": rtd_orig,
     }
     out = update_mod._sync_item_text(text_dto, title="新标题", desc=None)
     assert out["title"] == "新标题"
-    assert out["desc"] == "新标题\n第一行\n第二行"
+    assert out["desc"] == "新标题\n第一行"
     assert out["wlDescription"].startswith("新标题新标题")
     rtd = json.loads(out["richTextDesc"])
-    texts = [c["children"][0]["text"] for c in rtd["children"]]
-    assert texts[0] == "新标题"
-    assert texts[1:] == ["第一行", "第二行"]
+    # 顶层键保留：version 不丢、不新增 type: null
+    assert rtd["version"] == "1.0"
+    assert set(rtd) == set(json.loads(rtd_orig))
+    # 图片节点无损
+    assert rtd["children"][1]["children"][0]["type"] == "Image"
+    assert rtd["children"][1]["children"][0]["properties"]["url"] == "https://cdn/i.png"
+    # 文本节点已替换
+    assert rtd["children"][0]["children"][0]["text"] == "新标题"
+    assert rtd["children"][1]["children"][1]["text"] == "第一行"
+
     # 只改 desc（desc 不含标题前缀的场景）：标题保持，desc 不加前缀
     out_noprefix = update_mod._sync_item_text(
         {"title": "旧标题", "desc": "纯描述正文"}, title=None, desc="新描述",
@@ -356,11 +367,112 @@ def test_sync_item_text_rebuilds_derived_fields():
     assert out_noprefix["desc"] == "新描述"
 
 
+def test_sync_item_text_desc_byte_preserved():
+    """内嵌标题商品只改标题：正文空行与末尾换行逐字节保留。"""
+    text_dto = {
+        "title": "旧标题",
+        "desc": "旧标题\n\n第一行\n\n\n末行\n",
+        "titleDescSeparate": "false",
+    }
+    out = update_mod._sync_item_text(text_dto, title="新标题", desc=None)
+    assert out["desc"] == "新标题\n\n第一行\n\n\n末行\n"
+
+
+def test_sync_item_text_separate_by_field_not_prefix():
+    """分离式商品描述开头恰好重复标题：不得误删该文本（用 titleDescSeparate 判断）。"""
+    text_dto = {
+        "title": "旧标题",
+        "desc": "旧标题重复出现的正文",
+        "titleDescSeparate": "true",
+    }
+    out = update_mod._sync_item_text(text_dto, title="新标题", desc=None)
+    assert out["desc"] == "旧标题重复出现的正文"
+    assert out["title"] == "新标题"
+
+
 def test_build_payload_with_title_keeps_desc_derived_consistent():
     # desc 含标题前缀的场景（titleDescSeparate=false）：标题改变时 desc 首行同步
     detail = json.loads(json.dumps(DETAIL))
+    detail["itemTextDTO"]["titleDescSeparate"] = "false"
     detail["itemTextDTO"]["desc"] = "Python代做\n长期接单"
     payload = _build_edit_payload(detail, item_id="1104168284060", title="T2")
     assert payload["itemTextDTO"]["title"] == "T2"
     assert payload["itemTextDTO"]["desc"].startswith("T2")
     assert payload["itemTextDTO"]["desc"].endswith("长期接单")
+
+
+# ---------------- 评审修复：在售闸门 / 图片上传顺序 ----------------
+
+
+def test_delisted_item_rejected_no_edit_request(monkeypatch):
+    """已下架商品（itemStatus=1）直接报错拒绝，不发 edit、不上传图片。"""
+    calls = []
+    upload_mock = MagicMock(side_effect=AssertionError("非在售商品不得上传图片"))
+
+    def fake_call(session, api, data, **kwargs):
+        calls.append(api)
+        if api.endswith("editDetail"):
+            detail = dict(DETAIL, itemStatus="1", quantity="0")
+            return _detail_response(detail)
+        return {"ret": ["SUCCESS::ok"], "data": {}}
+
+    monkeypatch.setattr(update_mod, "call", fake_call)
+    monkeypatch.setattr(update_mod, "media_upload", upload_mock)
+    monkeypatch.setattr(
+        update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1")))
+    )
+    with pytest.raises(GoofishError, match="上架"):
+        update("1104168284060", price=59)
+    # 只允许有 editDetail 读取，不允许有 edit 写请求
+    assert all(api.endswith("editDetail") for api in calls)
+    upload_mock.assert_not_called()
+
+
+def test_delisted_item_missing_status_rejected(monkeypatch):
+    def fake_call(session, api, data, **kwargs):
+        detail = {k: v for k, v in DETAIL.items() if k != "itemStatus"}
+        return _detail_response(detail)
+
+    monkeypatch.setattr(update_mod, "call", fake_call)
+    monkeypatch.setattr(
+        update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1")))
+    )
+    with pytest.raises(GoofishError, match="在售"):
+        update("1104168284060", price=59)
+
+
+def test_images_uploaded_after_rate_limit_check(monkeypatch, tmp_path):
+    """限流/熔断拒绝时不得白传图片：上传必须发生在 write_operation 检查之后。"""
+    from contextlib import contextmanager
+
+    img = tmp_path / "g.png"
+    img.write_bytes(b"x")
+    uploads = []
+    monkeypatch.setenv("GOOFISH_LIMITER_PATH", str(tmp_path / "limiter.json"))
+    monkeypatch.setenv("GOOFISH_GUARD_PATH", str(tmp_path / "circuit.json"))
+
+    def fake_upload(path):
+        uploads.append(str(path))
+        return {"url": "https://cdn/g.png", "width": 1, "height": 1}
+
+    entered = {"ok": False}
+
+    @contextmanager
+    def fake_write_operation(session, bucket):
+        entered["ok"] = True  # 模拟限流检查已通过
+        yield
+
+    def fake_call(session, api, data, **kwargs):
+        if api.endswith("editDetail"):
+            return _detail_response()
+        return {"ret": ["SUCCESS::ok"], "data": {}}
+
+    monkeypatch.setattr(update_mod, "media_upload", fake_upload)
+    monkeypatch.setattr(update_mod, "write_operation", fake_write_operation)
+    monkeypatch.setattr(update_mod, "call", fake_call)
+    monkeypatch.setattr(
+        update_mod, "Session", MagicMock(load=MagicMock(return_value=MagicMock(unb="u1")))
+    )
+    result = update("1104168284060", images=[str(img)])
+    assert result["ok"] is True
+    assert entered["ok"] and uploads == [str(img)]
